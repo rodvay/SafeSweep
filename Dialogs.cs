@@ -72,6 +72,19 @@ namespace SafeSweep
         private readonly string _lang;
         private readonly ListView _lvFolders;
         private readonly ListView _lvFiles;
+        private readonly List<Font> _ownedFonts = new List<Font>();
+
+        private Font TrackFont(Font f) { _ownedFonts.Add(f); return f; }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                foreach (Font f in _ownedFonts) { try { f.Dispose(); } catch { } }
+                _ownedFonts.Clear();
+            }
+            base.Dispose(disposing);
+        }
 
         public FolderInspectorDialog(CleanupCategory cat, string lang)
         {
@@ -87,7 +100,7 @@ namespace SafeSweep
             StartPosition = FormStartPosition.CenterParent;
             BackColor = ColBg;
             ForeColor = ColText;
-            Font = new Font(fontName, 9f, FontStyle.Regular);
+            Font = TrackFont(new Font(fontName, 9f, FontStyle.Regular));
 
             SuspendLayout();
             AutoScaleDimensions = new SizeF(96f, 96f);
@@ -97,7 +110,7 @@ namespace SafeSweep
             Label lblTitle = new Label();
             lblTitle.UseMnemonic = false;
             lblTitle.Text = cat.GetName(lang);
-            lblTitle.Font = new Font(fontName, 12.5f, FontStyle.Bold);
+            lblTitle.Font = TrackFont(new Font(fontName, 12.5f, FontStyle.Bold));
             lblTitle.ForeColor = ColText;
             lblTitle.Location = new Point(20, 16);
             lblTitle.AutoSize = true;
@@ -110,7 +123,7 @@ namespace SafeSweep
                 CleanupEngine.FormatBytes(cat.TotalBytes, lang),
                 cat.FileCount,
                 LangHelper.T(lang, "files", "dosya", "个文件"));
-            lblSummary.Font = new Font(fontName, 10.5f, FontStyle.Bold);
+            lblSummary.Font = TrackFont(new Font(fontName, 10.5f, FontStyle.Bold));
             lblSummary.ForeColor = cat.Tier == SafetyTier.Safe ? ColSafe : ColCaution;
             lblSummary.Location = new Point(400, 18);
             lblSummary.Size = new Size(230, 22);
@@ -128,7 +141,7 @@ namespace SafeSweep
             Label lblFolders = new Label();
             lblFolders.UseMnemonic = false;
             lblFolders.Text = LangHelper.T(lang, "Scanned Folders:", "Taranan Klasörler:", "扫描目录:");
-            lblFolders.Font = new Font(fontName, 8.8f, FontStyle.Bold);
+            lblFolders.Font = TrackFont(new Font(fontName, 8.8f, FontStyle.Bold));
             lblFolders.ForeColor = ColBody;
             lblFolders.Location = new Point(20, 74);
             lblFolders.AutoSize = true;
@@ -157,7 +170,7 @@ namespace SafeSweep
                 "Largest Files (Top 25 — Read-Only Preview):",
                 "En Büyük Dosyalar (İlk 25 — Salt Okunur Önizleme):",
                 "体积最大的文件 (前 25 项 — 只读预览):");
-            lblFiles.Font = new Font(fontName, 8.8f, FontStyle.Bold);
+            lblFiles.Font = TrackFont(new Font(fontName, 8.8f, FontStyle.Bold));
             lblFiles.ForeColor = ColBody;
             lblFiles.Location = new Point(20, 236);
             lblFiles.AutoSize = true;
@@ -250,7 +263,9 @@ namespace SafeSweep
             lv.BorderStyle = BorderStyle.FixedSingle;
             lv.BackColor = surfaceColor;
             lv.ForeColor = bodyColor;
-            lv.Font = new Font(fontName, 8.6f);
+            Font lvFont = new Font(fontName, 8.6f);
+            lv.Font = lvFont;
+            lv.Disposed += delegate { try { lvFont.Dispose(); } catch { } };
             lv.OwnerDraw = true;
 
             Color hdrBg = Color.FromArgb(28, 35, 46);
@@ -343,6 +358,19 @@ namespace SafeSweep
         private static readonly Color ColMuted = Color.FromArgb(139, 148, 158);
         private static readonly Color ColSafe = Color.FromArgb(52, 211, 153);
         private static readonly Color ColCaution = Color.FromArgb(251, 191, 36);
+        private readonly List<Font> _ownedFonts = new List<Font>();
+
+        private Font TrackFont(Font f) { _ownedFonts.Add(f); return f; }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                foreach (Font f in _ownedFonts) { try { f.Dispose(); } catch { } }
+                _ownedFonts.Clear();
+            }
+            base.Dispose(disposing);
+        }
 
         public ConfirmCleanDialog(List<CleanupCategory> selected, string lang)
         {
@@ -366,7 +394,7 @@ namespace SafeSweep
             StartPosition = FormStartPosition.CenterParent;
             BackColor = ColBg;
             ForeColor = ColText;
-            Font = new Font(fontName, 9f, FontStyle.Regular);
+            Font = TrackFont(new Font(fontName, 9f, FontStyle.Regular));
 
             SuspendLayout();
             AutoScaleDimensions = new SizeF(96f, 96f);
@@ -380,7 +408,7 @@ namespace SafeSweep
                 LangHelper.T(lang, "Permanently clean {0} ({1:N0} files)", "{0} ({1:N0} dosya) kalıcı olarak temizlenecek", "即将永久清理 {0} (共 {1:N0} 个文件)"),
                 CleanupEngine.FormatBytes(totalBytes, lang),
                 totalFiles);
-            lblTitle.Font = new Font(fontName, 10.8f, FontStyle.Bold);
+            lblTitle.Font = TrackFont(new Font(fontName, 10.8f, FontStyle.Bold));
             lblTitle.ForeColor = hasCaution ? ColCaution : ColSafe;
             lblTitle.Location = new Point(20, 16);
             lblTitle.Size = new Size(430, 24);
@@ -430,7 +458,7 @@ namespace SafeSweep
             lblWarn.UseMnemonic = false;
             lblWarn.Text = warnText.Trim();
             lblWarn.ForeColor = (hasCaution || hasRunning) ? ColCaution : ColMuted;
-            lblWarn.Font = new Font(fontName, 8.3f);
+            lblWarn.Font = TrackFont(new Font(fontName, 8.3f));
             lblWarn.Location = new Point(20, 280);
             lblWarn.Size = new Size(430, 48);
             Controls.Add(lblWarn);
@@ -444,7 +472,7 @@ namespace SafeSweep
             btnConfirm.FlatAppearance.BorderColor = ColSafe;
             btnConfirm.Location = new Point(216, 338);
             btnConfirm.Size = new Size(134, 34);
-            btnConfirm.Font = new Font(fontName, 9f, FontStyle.Bold);
+            btnConfirm.Font = TrackFont(new Font(fontName, 9f, FontStyle.Bold));
             btnConfirm.Cursor = Cursors.Hand;
             btnConfirm.DialogResult = DialogResult.OK;
             Controls.Add(btnConfirm);

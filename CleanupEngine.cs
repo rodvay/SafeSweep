@@ -388,18 +388,23 @@ namespace SafeSweep
 
     internal static class CleanupEngine
     {
+        private static bool? _cachedIsAdmin;
+
         public static bool IsAdministrator()
         {
+            if (_cachedIsAdmin.HasValue) return _cachedIsAdmin.Value;
             try
             {
                 using (WindowsIdentity id = WindowsIdentity.GetCurrent())
                 {
                     WindowsPrincipal principal = new WindowsPrincipal(id);
-                    return principal.IsInRole(WindowsBuiltInRole.Administrator);
+                    _cachedIsAdmin = principal.IsInRole(WindowsBuiltInRole.Administrator);
+                    return _cachedIsAdmin.Value;
                 }
             }
             catch
             {
+                _cachedIsAdmin = false;
                 return false;
             }
         }
@@ -504,9 +509,12 @@ namespace SafeSweep
             {
                 if (Directory.Exists(opRoot))
                 {
-                    AddTargetIfSafe(cOpera, Path.Combine(opRoot, "Cache"), true, 0);
-                    AddTargetIfSafe(cOpera, Path.Combine(opRoot, "Code Cache"), true, 0);
-                    AddTargetIfSafe(cOpera, Path.Combine(opRoot, "GPUCache"), true, 0);
+                    AddTargetIfExistsAndSafe(cOpera, Path.Combine(opRoot, "Cache"), true, 0);
+                    AddTargetIfExistsAndSafe(cOpera, Path.Combine(opRoot, "Code Cache"), true, 0);
+                    AddTargetIfExistsAndSafe(cOpera, Path.Combine(opRoot, "GPUCache"), true, 0);
+                    AddTargetIfExistsAndSafe(cOpera, Path.Combine(opRoot, @"Default\Cache"), true, 0);
+                    AddTargetIfExistsAndSafe(cOpera, Path.Combine(opRoot, @"Default\Code Cache"), true, 0);
+                    AddTargetIfExistsAndSafe(cOpera, Path.Combine(opRoot, @"Default\GPUCache"), true, 0);
                 }
             }
             if (cOpera.Targets.Count > 0) list.Add(cOpera);
