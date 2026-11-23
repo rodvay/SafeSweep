@@ -12,10 +12,10 @@ using System.Threading;
 using System.Windows.Forms;
 
 [assembly: AssemblyTitle("SafeSweep — Safe Windows Disk Cleaner")]
-[assembly: AssemblyDescription("Transparent, safety-first Windows disk cleaner showing folder-by-folder breakdowns before cleaning.")]
+[assembly: AssemblyDescription("Transparent, safety-first Windows disk cleaner showing folder-by-folder breakdowns before cleaning (EN/TR/zh-CN).")]
 [assembly: AssemblyProduct("SafeSweep")]
-[assembly: AssemblyVersion("1.0.0.0")]
-[assembly: AssemblyFileVersion("1.0.0.0")]
+[assembly: AssemblyVersion("1.1.0.0")]
+[assembly: AssemblyFileVersion("1.1.0.0")]
 
 namespace SafeSweep
 {
@@ -29,8 +29,7 @@ namespace SafeSweep
         public static LaunchArgs Parse(string[] args)
         {
             LaunchArgs opt = new LaunchArgs();
-            if (args == null)
-                return opt;
+            if (args == null) return opt;
 
             for (int i = 0; i < args.Length; i++)
             {
@@ -41,7 +40,7 @@ namespace SafeSweep
                 else if (a == "--lang" && i + 1 < args.Length)
                 {
                     string l = (args[++i] ?? "").Trim().ToLowerInvariant();
-                    if (l == "tr" || l == "en")
+                    if (l == "tr" || l == "en" || l == "zh")
                         opt.ForceLang = l;
                 }
             }
@@ -51,24 +50,11 @@ namespace SafeSweep
 
     internal sealed class AppPrefs
     {
-        public string Language; // "en" or "tr"
+        public string Language; // "tr", "en", "zh"
 
         public AppPrefs()
         {
-            bool isTr = false;
-            try
-            {
-                isTr = string.Equals(CultureInfo.CurrentUICulture.TwoLetterISOLanguageName, "tr", StringComparison.OrdinalIgnoreCase);
-            }
-            catch
-            {
-            }
-            Language = isTr ? "tr" : "en";
-        }
-
-        public bool IsTurkish
-        {
-            get { return string.Equals(Language, "tr", StringComparison.OrdinalIgnoreCase); }
+            Language = LangHelper.DetectSystemLanguage();
         }
 
         private static string PrefPath()
@@ -90,13 +76,11 @@ namespace SafeSweep
                     if (eq <= 0) continue;
                     string k = line.Substring(0, eq).Trim();
                     string v = line.Substring(eq + 1).Trim();
-                    if (k == "Language" && (v == "tr" || v == "en"))
+                    if (k == "Language" && (v == "tr" || v == "en" || v == "zh"))
                         p.Language = v;
                 }
             }
-            catch
-            {
-            }
+            catch { }
             return p;
         }
 
@@ -110,9 +94,7 @@ namespace SafeSweep
                     Directory.CreateDirectory(dir);
                 File.WriteAllText(path, "Language=" + (Language ?? "en") + Environment.NewLine, Encoding.UTF8);
             }
-            catch
-            {
-            }
+            catch { }
         }
     }
 
@@ -143,7 +125,7 @@ namespace SafeSweep
 
         private List<CleanupCategory> _items = new List<CleanupCategory>();
         private float _scale = 1.0f;
-        private bool _isTurkish;
+        private string _lang = "en";
         private bool _isBusy;
         private long _maxCategoryBytes = 1;
         private int _scrollY;
@@ -186,9 +168,10 @@ namespace SafeSweep
             Invalidate();
         }
 
-        public void SetLanguage(bool isTurkish)
+        public void SetLanguage(string lang)
         {
-            _isTurkish = isTurkish;
+            _lang = lang ?? "en";
+            RebuildFonts();
             Invalidate();
         }
 
@@ -203,10 +186,7 @@ namespace SafeSweep
             _items = visibleItems ?? new List<CleanupCategory>();
             _maxCategoryBytes = 1;
             foreach (CleanupCategory c in _items)
-            {
-                if (c.TotalBytes > _maxCategoryBytes)
-                    _maxCategoryBytes = c.TotalBytes;
-            }
+                if (c.TotalBytes > _maxCategoryBytes) _maxCategoryBytes = c.TotalBytes;
             ClampScroll();
             Invalidate();
         }
@@ -220,12 +200,13 @@ namespace SafeSweep
         private void RebuildFonts()
         {
             DisposeFonts();
-            _fontTitle = new Font("Segoe UI", PtToPx(9.6f), FontStyle.Bold, GraphicsUnit.Pixel);
-            _fontBadge = new Font("Segoe UI", PtToPx(7.0f), FontStyle.Bold, GraphicsUnit.Pixel);
-            _fontPath = new Font("Segoe UI", PtToPx(8.0f), FontStyle.Regular, GraphicsUnit.Pixel);
+            string fam = LangHelper.UiFontFamily(_lang);
+            _fontTitle = new Font(fam, PtToPx(9.6f), FontStyle.Bold, GraphicsUnit.Pixel);
+            _fontBadge = new Font(fam, PtToPx(7.0f), FontStyle.Bold, GraphicsUnit.Pixel);
+            _fontPath = new Font(fam, PtToPx(8.0f), FontStyle.Regular, GraphicsUnit.Pixel);
             _fontSize = new Font("Segoe UI", PtToPx(10.2f), FontStyle.Bold, GraphicsUnit.Pixel);
-            _fontCount = new Font("Segoe UI", PtToPx(7.8f), FontStyle.Regular, GraphicsUnit.Pixel);
-            _fontBtn = new Font("Segoe UI", PtToPx(8.0f), FontStyle.Bold, GraphicsUnit.Pixel);
+            _fontCount = new Font(fam, PtToPx(7.8f), FontStyle.Regular, GraphicsUnit.Pixel);
+            _fontBtn = new Font(fam, PtToPx(8.0f), FontStyle.Bold, GraphicsUnit.Pixel);
         }
 
         private void DisposeFonts()
@@ -244,10 +225,7 @@ namespace SafeSweep
             return _items.Count * (RowHeightPx() + RowGapPx()) - RowGapPx() + (int)Math.Round(4f * _scale);
         }
 
-        private int MaxScroll()
-        {
-            return Math.Max(0, TotalContentHeight() - ClientSize.Height);
-        }
+        private int MaxScroll() { return Math.Max(0, TotalContentHeight() - ClientSize.Height); }
 
         private void ClampScroll()
         {
@@ -256,10 +234,7 @@ namespace SafeSweep
             if (_scrollY < 0) _scrollY = 0;
         }
 
-        private bool NeedsScrollbar()
-        {
-            return MaxScroll() > 0;
-        }
+        private bool NeedsScrollbar() { return MaxScroll() > 0; }
 
         private RectangleF GetRowRect(int index)
         {
@@ -278,9 +253,7 @@ namespace SafeSweep
         private RectangleF GetScrollThumbRect()
         {
             int total = TotalContentHeight();
-            if (total <= ClientSize.Height || ClientSize.Height <= 0)
-                return RectangleF.Empty;
-
+            if (total <= ClientSize.Height || ClientSize.Height <= 0) return RectangleF.Empty;
             float trackX = ClientSize.Width - ScrollbarWidthPx();
             float trackH = ClientSize.Height;
             float thumbH = Math.Max(Sf(32f), trackH * ((float)ClientSize.Height / total));
@@ -289,19 +262,13 @@ namespace SafeSweep
             return new RectangleF(trackX + Sf(2f), thumbY, ScrollbarWidthPx() - Sf(4f), thumbH);
         }
 
-        protected override void OnResize(EventArgs e)
-        {
-            base.OnResize(e);
-            ClampScroll();
-            Invalidate();
-        }
+        protected override void OnResize(EventArgs e) { base.OnResize(e); ClampScroll(); Invalidate(); }
 
         protected override void OnMouseWheel(MouseEventArgs e)
         {
             base.OnMouseWheel(e);
             if (!NeedsScrollbar()) return;
-            int step = (int)Math.Round(52f * _scale);
-            _scrollY -= (e.Delta / 120) * step;
+            _scrollY -= (e.Delta / 120) * (int)Math.Round(52f * _scale);
             ClampScroll();
             Invalidate();
         }
@@ -309,13 +276,11 @@ namespace SafeSweep
         protected override void OnMouseMove(MouseEventArgs e)
         {
             base.OnMouseMove(e);
-
             if (_draggingScroll)
             {
                 RectangleF thumb = GetScrollThumbRect();
                 float availTrack = Math.Max(1f, ClientSize.Height - thumb.Height);
-                int dy = e.Y - _dragStartY;
-                _scrollY = _dragStartScroll + (int)Math.Round((dy / availTrack) * MaxScroll());
+                _scrollY = _dragStartScroll + (int)Math.Round(((e.Y - _dragStartY) / availTrack) * MaxScroll());
                 ClampScroll();
                 Invalidate();
                 return;
@@ -356,9 +321,7 @@ namespace SafeSweep
             base.OnMouseLeave(e);
             if (_hoverRow != -1 || _hoverInspect || _hoverScroll)
             {
-                _hoverRow = -1;
-                _hoverInspect = false;
-                _hoverScroll = false;
+                _hoverRow = -1; _hoverInspect = false; _hoverScroll = false;
                 Cursor = Cursors.Default;
                 Invalidate();
             }
@@ -390,15 +353,13 @@ namespace SafeSweep
                 {
                     if (GetInspectBtnRect(rr).Contains(e.Location))
                     {
-                        if (InspectRequested != null)
-                            InspectRequested(_items[i]);
+                        if (InspectRequested != null) InspectRequested(_items[i]);
                     }
                     else
                     {
                         _items[i].Checked = !_items[i].Checked;
                         Invalidate();
-                        if (SelectionChanged != null)
-                            SelectionChanged(this, EventArgs.Empty);
+                        if (SelectionChanged != null) SelectionChanged(this, EventArgs.Empty);
                     }
                     break;
                 }
@@ -408,11 +369,7 @@ namespace SafeSweep
         protected override void OnMouseUp(MouseEventArgs e)
         {
             base.OnMouseUp(e);
-            if (_draggingScroll)
-            {
-                _draggingScroll = false;
-                Capture = false;
-            }
+            if (_draggingScroll) { _draggingScroll = false; Capture = false; }
         }
 
         protected override void OnMouseDoubleClick(MouseEventArgs e)
@@ -425,13 +382,10 @@ namespace SafeSweep
                 RectangleF rr = GetRowRect(i);
                 if (rr.Contains(e.Location) && !GetInspectBtnRect(rr).Contains(e.Location))
                 {
-                    // Revert the second toggle from the double click and open inspector
                     _items[i].Checked = !_items[i].Checked;
                     Invalidate();
-                    if (SelectionChanged != null)
-                        SelectionChanged(this, EventArgs.Empty);
-                    if (InspectRequested != null)
-                        InspectRequested(_items[i]);
+                    if (SelectionChanged != null) SelectionChanged(this, EventArgs.Empty);
+                    if (InspectRequested != null) InspectRequested(_items[i]);
                     break;
                 }
             }
@@ -453,21 +407,18 @@ namespace SafeSweep
                     sf.Alignment = StringAlignment.Center;
                     sf.LineAlignment = StringAlignment.Center;
                     string msg = _isBusy
-                        ? (_isTurkish ? "Klasörler güvenli şekilde taranıyor..." : "Scanning system folders safely...")
-                        : (_isTurkish ? "Temizlenecek öğe bulunamadı — bilgisayarınız temiz görünüyor." : "Nothing to clean — your system looks spotless.");
+                        ? LangHelper.T(_lang, "Scanning system folders safely...", "Klasörler güvenli şekilde taranıyor...", "正在安全扫描系统文件夹...")
+                        : LangHelper.T(_lang, "Nothing to clean — your system looks spotless.", "Temizlenecek öğe bulunamadı — bilgisayarınız temiz görünüyor.", "未发现可清理项目，您的系统非常干净。");
                     g.DrawString(msg, _fontTitle, b, ClientRectangle, sf);
                 }
                 return;
             }
 
-            CultureInfo c = CleanupEngine.GetCulture(_isTurkish);
-
+            CultureInfo c = LangHelper.GetCulture(_lang);
             for (int i = 0; i < _items.Count; i++)
             {
                 RectangleF rr = GetRowRect(i);
-                if (rr.Bottom < -4 || rr.Top > ClientSize.Height + 4)
-                    continue;
-
+                if (rr.Bottom < -4 || rr.Top > ClientSize.Height + 4) continue;
                 DrawRow(g, _items[i], rr, i == _hoverRow, i == _hoverRow && _hoverInspect, c);
             }
 
@@ -486,11 +437,8 @@ namespace SafeSweep
 
         private void DrawRow(Graphics g, CleanupCategory cat, RectangleF rr, bool hovered, bool inspectHovered, CultureInfo c)
         {
-            Color bg = hovered ? ColRowHover : ColRow;
-            Color border = hovered ? ColRowBorderHover : ColRowBorder;
-            DrawRoundedBox(g, rr, Sf(10f), bg, border);
+            DrawRoundedBox(g, rr, Sf(10f), hovered ? ColRowHover : ColRow, hovered ? ColRowBorderHover : ColRowBorder);
 
-            // 1. Checkbox
             float cbSize = Sf(18f);
             RectangleF cbRect = new RectangleF(rr.X + Sf(14f), rr.Y + (rr.Height - cbSize) * 0.5f, cbSize, cbSize);
             if (cat.Checked)
@@ -499,16 +447,13 @@ namespace SafeSweep
                 DrawRoundedBox(g, cbRect, Sf(5f), checkBg, checkBg);
                 using (Pen cp = new Pen(ColBg, Math.Max(1.8f, Sf(2.0f))))
                 {
-                    cp.StartCap = LineCap.Round;
-                    cp.EndCap = LineCap.Round;
-                    cp.LineJoin = LineJoin.Round;
-                    PointF[] pts = new PointF[]
+                    cp.StartCap = LineCap.Round; cp.EndCap = LineCap.Round; cp.LineJoin = LineJoin.Round;
+                    g.DrawLines(cp, new PointF[]
                     {
                         new PointF(cbRect.X + cbRect.Width * 0.22f, cbRect.Y + cbRect.Height * 0.52f),
                         new PointF(cbRect.X + cbRect.Width * 0.43f, cbRect.Y + cbRect.Height * 0.74f),
                         new PointF(cbRect.X + cbRect.Width * 0.79f, cbRect.Y + cbRect.Height * 0.29f)
-                    };
-                    g.DrawLines(cp, pts);
+                    });
                 }
             }
             else
@@ -516,15 +461,13 @@ namespace SafeSweep
                 DrawRoundedBox(g, cbRect, Sf(5f), ColBg, Color.FromArgb(72, 84, 102));
             }
 
-            // Right side geometry
             RectangleF inspectRect = GetInspectBtnRect(rr);
             float statsW = Sf(132f);
             float statsX = inspectRect.X - statsW - Sf(12f);
 
-            // 2. Title + Badges
             float textX = rr.X + Sf(44f);
             float maxTextW = Math.Max(Sf(140f), statsX - textX - Sf(10f));
-            string title = cat.GetName(_isTurkish);
+            string title = cat.GetName(_lang);
 
             float badgeStartX;
             using (StringFormat sfTitle = new StringFormat(StringFormat.GenericTypographic))
@@ -538,38 +481,34 @@ namespace SafeSweep
                 float drawW = Math.Min(tSize.Width + Sf(4f), maxTextW - Sf(76f));
                 RectangleF titleRect = new RectangleF(textX, rr.Y + Sf(10f), drawW, Sf(20f));
                 using (SolidBrush tb = new SolidBrush(cat.TotalBytes > 0 ? ColTextPrimary : ColTextMuted))
-                {
                     g.DrawString(title, _fontTitle, tb, titleRect, sfTitle);
-                }
                 badgeStartX = textX + drawW + Sf(8f);
             }
 
-            // Safety tier badge
             string tierLabel = cat.Tier == SafetyTier.Safe
-                ? (_isTurkish ? "GÜVENLİ" : "SAFE")
-                : (_isTurkish ? "DİKKAT" : "CAUTION");
-            Color tierBg = cat.Tier == SafetyTier.Safe ? ColSafeBg : ColCautionBg;
-            Color tierBd = cat.Tier == SafetyTier.Safe ? ColSafeBorder : ColCautionBorder;
-            Color tierFg = cat.Tier == SafetyTier.Safe ? ColSafe : ColCaution;
+                ? LangHelper.T(_lang, "SAFE", "GÜVENLİ", "安全")
+                : LangHelper.T(_lang, "CAUTION", "DİKKAT", "谨慎");
+            badgeStartX = DrawPillTag(g, badgeStartX, rr.Y + Sf(12f), tierLabel,
+                cat.Tier == SafetyTier.Safe ? ColSafeBg : ColCautionBg,
+                cat.Tier == SafetyTier.Safe ? ColSafeBorder : ColCautionBorder,
+                cat.Tier == SafetyTier.Safe ? ColSafe : ColCaution,
+                statsX - Sf(8f));
 
-            badgeStartX = DrawPillTag(g, badgeStartX, rr.Y + Sf(12f), tierLabel, tierBg, tierBd, tierFg, statsX - Sf(8f));
-
-            // Optional running app badge
             if (cat.IsAppRunning && badgeStartX < statsX - Sf(54f))
             {
-                string runLbl = _isTurkish ? "AÇIK" : "RUNNING";
-                badgeStartX = DrawPillTag(g, badgeStartX, rr.Y + Sf(12f), runLbl, ColWarnBg, Color.FromArgb(148, 78, 36), ColWarnText, statsX - Sf(8f));
+                badgeStartX = DrawPillTag(g, badgeStartX, rr.Y + Sf(12f),
+                    LangHelper.T(_lang, "RUNNING", "AÇIK", "运行中"),
+                    ColWarnBg, Color.FromArgb(148, 78, 36), ColWarnText, statsX - Sf(8f));
             }
 
-            // Optional partial admin badge
             if (cat.AccessDeniedFolders > 0 && !CleanupEngine.IsAdministrator() && badgeStartX < statsX - Sf(64f))
             {
-                string admLbl = _isTurkish ? "KISMİ" : "PARTIAL";
-                DrawPillTag(g, badgeStartX, rr.Y + Sf(12f), admLbl, Color.FromArgb(28, 35, 46), Color.FromArgb(62, 74, 92), ColTextSecondary, statsX - Sf(8f));
+                DrawPillTag(g, badgeStartX, rr.Y + Sf(12f),
+                    LangHelper.T(_lang, "PARTIAL", "KISMİ", "部分权限"),
+                    Color.FromArgb(28, 35, 46), Color.FromArgb(62, 74, 92), ColTextSecondary, statsX - Sf(8f));
             }
 
-            // 3. Folder Path + Short description
-            string subLine = cat.DisplayPath + "  ·  " + cat.GetDescription(_isTurkish);
+            string subLine = cat.DisplayPath + "  ·  " + cat.GetDescription(_lang);
             RectangleF pathRect = new RectangleF(textX, rr.Y + Sf(34f), maxTextW, Sf(20f));
             using (SolidBrush pb = new SolidBrush(ColTextSecondary))
             using (StringFormat sf = new StringFormat())
@@ -581,8 +520,7 @@ namespace SafeSweep
                 g.DrawString(subLine, _fontPath, pb, pathRect, sf);
             }
 
-            // 4. Right Stats (Size + File Count + Proportional mini bar)
-            string sizeStr = CleanupEngine.FormatBytes(cat.TotalBytes, _isTurkish);
+            string sizeStr = CleanupEngine.FormatBytes(cat.TotalBytes, _lang);
             Color sizeCol = cat.TotalBytes == 0
                 ? ColTextMuted
                 : (cat.Tier == SafetyTier.Caution ? ColCaution : (cat.TotalBytes >= 100L * 1024 * 1024 ? ColSafe : ColTextPrimary));
@@ -591,28 +529,22 @@ namespace SafeSweep
             using (SolidBrush sb = new SolidBrush(sizeCol))
             using (StringFormat sf = new StringFormat())
             {
-                sf.Alignment = StringAlignment.Far;
-                sf.LineAlignment = StringAlignment.Center;
-                sf.FormatFlags = StringFormatFlags.NoWrap;
+                sf.Alignment = StringAlignment.Far; sf.LineAlignment = StringAlignment.Center; sf.FormatFlags = StringFormatFlags.NoWrap;
                 g.DrawString(sizeStr, _fontSize, sb, sizeRect, sf);
             }
 
-            string countStr = string.Format(c, "{0:N0} {1}", cat.FileCount, _isTurkish ? "dosya" : (cat.FileCount == 1 ? "file" : "files"));
+            string unitFile = (_lang == "tr") ? "dosya" : ((_lang == "zh") ? "个文件" : (cat.FileCount == 1 ? "file" : "files"));
+            string countStr = string.Format(c, "{0:N0} {1}", cat.FileCount, unitFile);
             RectangleF cntRect = new RectangleF(statsX, rr.Y + Sf(31f), statsW, Sf(16f));
             using (SolidBrush cb = new SolidBrush(ColTextMuted))
             using (StringFormat sf = new StringFormat())
             {
-                sf.Alignment = StringAlignment.Far;
-                sf.LineAlignment = StringAlignment.Center;
-                sf.FormatFlags = StringFormatFlags.NoWrap;
+                sf.Alignment = StringAlignment.Far; sf.LineAlignment = StringAlignment.Center; sf.FormatFlags = StringFormatFlags.NoWrap;
                 g.DrawString(countStr, _fontCount, cb, cntRect, sf);
             }
 
-            // Proportional share bar
-            float barW = Sf(96f);
-            float barH = Sf(3.5f);
-            float barX = statsX + statsW - barW;
-            float barY = rr.Y + Sf(51f);
+            float barW = Sf(96f), barH = Sf(3.5f);
+            float barX = statsX + statsW - barW, barY = rr.Y + Sf(51f);
             using (GraphicsPath trackP = CreateRoundedRect(new RectangleF(barX, barY, barW, barH), Sf(1.7f)))
             using (SolidBrush trackB = new SolidBrush(Color.FromArgb(34, 42, 54)))
                 g.FillPath(trackB, trackP);
@@ -621,20 +553,17 @@ namespace SafeSweep
             {
                 float ratio = (float)Math.Min(1.0, Math.Max(0.05, (double)cat.TotalBytes / Math.Max(1L, _maxCategoryBytes)));
                 float fillW = barW * ratio;
-                Color fillCol = cat.Tier == SafetyTier.Safe ? ColSafe : ColCaution;
                 using (GraphicsPath fillP = CreateRoundedRect(new RectangleF(barX + (barW - fillW), barY, fillW, barH), Sf(1.7f)))
-                using (SolidBrush fillB = new SolidBrush(fillCol))
+                using (SolidBrush fillB = new SolidBrush(cat.Tier == SafetyTier.Safe ? ColSafe : ColCaution))
                     g.FillPath(fillB, fillP);
             }
 
-            // 5. Inspect button
             DrawRoundedBox(g, inspectRect, Sf(7f), inspectHovered ? ColBtnHover : ColBtnBg, inspectHovered ? ColSafe : ColBtnBorder);
             using (SolidBrush ib = new SolidBrush(inspectHovered ? ColTextPrimary : Color.FromArgb(200, 210, 222)))
             using (StringFormat sf = new StringFormat())
             {
-                sf.Alignment = StringAlignment.Center;
-                sf.LineAlignment = StringAlignment.Center;
-                g.DrawString(_isTurkish ? "İncele" : "Inspect", _fontBtn, ib, inspectRect, sf);
+                sf.Alignment = StringAlignment.Center; sf.LineAlignment = StringAlignment.Center;
+                g.DrawString(LangHelper.T(_lang, "Inspect", "İncele", "查看"), _fontBtn, ib, inspectRect, sf);
             }
         }
 
@@ -642,21 +571,16 @@ namespace SafeSweep
         {
             SizeF sz;
             using (StringFormat typo = new StringFormat(StringFormat.GenericTypographic))
-            {
                 sz = g.MeasureString(text, _fontBadge, PointF.Empty, typo);
-            }
-            float w = sz.Width + Sf(12f);
-            float h = Sf(17f);
-            if (x + w > maxX)
-                return maxX;
+            float w = sz.Width + Sf(12f), h = Sf(17f);
+            if (x + w > maxX) return maxX;
 
             RectangleF r = new RectangleF(x, y, w, h);
             DrawRoundedBox(g, r, Sf(4.5f), bg, border);
             using (SolidBrush fb = new SolidBrush(fg))
             using (StringFormat sf = new StringFormat())
             {
-                sf.Alignment = StringAlignment.Center;
-                sf.LineAlignment = StringAlignment.Center;
+                sf.Alignment = StringAlignment.Center; sf.LineAlignment = StringAlignment.Center;
                 g.DrawString(text, _fontBadge, fb, r, sf);
             }
             return x + w + Sf(6f);
@@ -668,8 +592,7 @@ namespace SafeSweep
             using (SolidBrush fb = new SolidBrush(fill))
             using (Pen bp = new Pen(border, 1f))
             {
-                g.FillPath(fb, p);
-                g.DrawPath(bp, p);
+                g.FillPath(fb, p); g.DrawPath(bp, p);
             }
         }
 
@@ -689,8 +612,7 @@ namespace SafeSweep
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing)
-                DisposeFonts();
+            if (disposing) DisposeFonts();
             base.Dispose(disposing);
         }
     }
@@ -700,16 +622,17 @@ namespace SafeSweep
         private const int DefaultLogicalW = 790;
         private const int DefaultLogicalH = 640;
 
-        // Interactive chrome hits
         private const int HitNone = -1;
-        private const int HitLang = 1;
-        private const int HitAdmin = 2;
-        private const int HitRescan = 3;
-        private const int HitSelSafe = 4;
-        private const int HitSelNone = 5;
-        private const int HitToggleEmpty = 6;
-        private const int HitCopyReport = 7;
-        private const int HitClean = 8;
+        private const int HitLangTr = 1;
+        private const int HitLangEn = 2;
+        private const int HitLangZh = 3;
+        private const int HitAdmin = 4;
+        private const int HitRescan = 5;
+        private const int HitSelSafe = 6;
+        private const int HitSelNone = 7;
+        private const int HitToggleEmpty = 8;
+        private const int HitCopyReport = 9;
+        private const int HitClean = 10;
 
         private static readonly Color ColBg = Color.FromArgb(13, 17, 23);
         private static readonly Color ColCard = Color.FromArgb(22, 27, 34);
@@ -751,8 +674,10 @@ namespace SafeSweep
         private long _diskTotalBytes;
         private string _diskName = "C:";
 
-        // Interactive rects
-        private RectangleF _rcLang;
+        private RectangleF _rcLangPill;
+        private RectangleF _rcLangTr;
+        private RectangleF _rcLangEn;
+        private RectangleF _rcLangZh;
         private RectangleF _rcAdmin;
         private RectangleF _rcRescan;
         private RectangleF _rcSelSafe;
@@ -767,6 +692,7 @@ namespace SafeSweep
         private Font _fontBrand;
         private Font _fontTagline;
         private Font _fontSmallPill;
+        private Font _fontLangZh;
         private Font _fontCardLabel;
         private Font _fontCardBig;
         private Font _fontCardSub;
@@ -797,8 +723,7 @@ namespace SafeSweep
                 true);
 
             _appIcon = LoadAppIcon();
-            if (_appIcon != null)
-                Icon = _appIcon;
+            if (_appIcon != null) Icon = _appIcon;
 
             _listPanel = new CleanupListPanel();
             _listPanel.SelectionChanged += delegate { Invalidate(); };
@@ -824,15 +749,12 @@ namespace SafeSweep
             };
             _uiTimer.Start();
 
-            if (_launch.DemoMode)
-            {
-                LoadDemoData();
-            }
-            else
-            {
-                StartScanAsync();
-            }
+            if (_launch.DemoMode) LoadDemoData();
+            else StartScanAsync();
         }
+
+        private string Lang { get { return _prefs.Language ?? "en"; } }
+        private string T(string en, string tr, string zh) { return LangHelper.T(Lang, en, tr, zh); }
 
         private static Icon LoadAppIcon()
         {
@@ -842,8 +764,7 @@ namespace SafeSweep
 
         private float GetInitialDpi()
         {
-            using (Graphics g = CreateGraphics())
-                return g.DpiX > 0 ? g.DpiX : 96f;
+            using (Graphics g = CreateGraphics()) return g.DpiX > 0 ? g.DpiX : 96f;
         }
 
         protected override void OnHandleCreated(EventArgs e)
@@ -865,9 +786,7 @@ namespace SafeSweep
                     }
                 }
             }
-            catch
-            {
-            }
+            catch { }
         }
 
         protected override void OnShown(EventArgs e)
@@ -875,10 +794,7 @@ namespace SafeSweep
             base.OnShown(e);
             if (_launch.DemoMode && _launch.ShowInspector && _allCategories.Count > 0)
             {
-                BeginInvoke((MethodInvoker)delegate
-                {
-                    OnInspectCategory(_allCategories[0]);
-                });
+                BeginInvoke((MethodInvoker)delegate { OnInspectCategory(_allCategories[0]); });
             }
             else if (_launch.DemoMode && _launch.ShowConfirm)
             {
@@ -887,7 +803,7 @@ namespace SafeSweep
                     List<CleanupCategory> sel = GetSelectedCleanable();
                     if (sel.Count > 0)
                     {
-                        using (ConfirmCleanDialog dlg = new ConfirmCleanDialog(sel, _prefs.IsTurkish))
+                        using (ConfirmCleanDialog dlg = new ConfirmCleanDialog(sel, Lang))
                             dlg.ShowDialog(this);
                     }
                 });
@@ -899,21 +815,12 @@ namespace SafeSweep
             if (m.Msg == NativeWindowStyle.WM_DPICHANGED)
             {
                 int newDpi = (int)(m.WParam.ToInt64() & 0xFFFF);
-                if (newDpi >= 72)
-                {
-                    UpdateDpiScale(newDpi);
-                    Invalidate();
-                }
+                if (newDpi >= 72) { UpdateDpiScale(newDpi); Invalidate(); }
             }
             base.WndProc(ref m);
         }
 
-        protected override void OnResize(EventArgs e)
-        {
-            base.OnResize(e);
-            LayoutElements();
-            Invalidate();
-        }
+        protected override void OnResize(EventArgs e) { base.OnResize(e); LayoutElements(); Invalidate(); }
 
         private int S(float logical) { return (int)Math.Round(logical * _scale); }
         private float Sf(float logical) { return logical * _scale; }
@@ -924,22 +831,24 @@ namespace SafeSweep
             _scale = dpi / 96f;
             RebuildFonts();
             _listPanel.SetScale(_scale);
-            _listPanel.SetLanguage(_prefs.IsTurkish);
+            _listPanel.SetLanguage(Lang);
             LayoutElements();
         }
 
         private void RebuildFonts()
         {
             DisposeFonts();
+            string fam = LangHelper.UiFontFamily(Lang);
             _fontBrand = new Font("Segoe UI", PtToPx(11f), FontStyle.Bold, GraphicsUnit.Pixel);
-            _fontTagline = new Font("Segoe UI", PtToPx(8.5f), FontStyle.Regular, GraphicsUnit.Pixel);
-            _fontSmallPill = new Font("Segoe UI", PtToPx(7.6f), FontStyle.Bold, GraphicsUnit.Pixel);
-            _fontCardLabel = new Font("Segoe UI", PtToPx(7.3f), FontStyle.Bold, GraphicsUnit.Pixel);
-            _fontCardBig = new Font("Segoe UI", PtToPx(18.5f), FontStyle.Bold, GraphicsUnit.Pixel);
-            _fontCardSub = new Font("Segoe UI", PtToPx(8.1f), FontStyle.Regular, GraphicsUnit.Pixel);
-            _fontToolbar = new Font("Segoe UI", PtToPx(8.2f), FontStyle.Bold, GraphicsUnit.Pixel);
-            _fontStatus = new Font("Segoe UI", PtToPx(8.5f), FontStyle.Regular, GraphicsUnit.Pixel);
-            _fontPrimaryBtn = new Font("Segoe UI", PtToPx(9.2f), FontStyle.Bold, GraphicsUnit.Pixel);
+            _fontTagline = new Font(fam, PtToPx(8.5f), FontStyle.Regular, GraphicsUnit.Pixel);
+            _fontSmallPill = new Font(fam, PtToPx(7.5f), FontStyle.Bold, GraphicsUnit.Pixel);
+            _fontLangZh = new Font("Microsoft YaHei UI", PtToPx(7.4f), FontStyle.Bold, GraphicsUnit.Pixel);
+            _fontCardLabel = new Font(fam, PtToPx(7.3f), FontStyle.Bold, GraphicsUnit.Pixel);
+            _fontCardBig = new Font(fam, PtToPx(18.5f), FontStyle.Bold, GraphicsUnit.Pixel);
+            _fontCardSub = new Font(fam, PtToPx(8.1f), FontStyle.Regular, GraphicsUnit.Pixel);
+            _fontToolbar = new Font(fam, PtToPx(8.2f), FontStyle.Bold, GraphicsUnit.Pixel);
+            _fontStatus = new Font(fam, PtToPx(8.5f), FontStyle.Regular, GraphicsUnit.Pixel);
+            _fontPrimaryBtn = new Font(fam, PtToPx(9.2f), FontStyle.Bold, GraphicsUnit.Pixel);
         }
 
         private void DisposeFonts()
@@ -947,6 +856,7 @@ namespace SafeSweep
             DisposeObj(ref _fontBrand);
             DisposeObj(ref _fontTagline);
             DisposeObj(ref _fontSmallPill);
+            DisposeObj(ref _fontLangZh);
             DisposeObj(ref _fontCardLabel);
             DisposeObj(ref _fontCardBig);
             DisposeObj(ref _fontCardSub);
@@ -966,38 +876,34 @@ namespace SafeSweep
             int h = ClientSize.Height;
             float pad = Sf(20f);
 
-            // Top right pills
-            _rcLang = new RectangleF(w - pad - Sf(58f), Sf(15f), Sf(58f), Sf(23f));
-            _rcAdmin = new RectangleF(_rcLang.X - Sf(88f), Sf(15f), Sf(80f), Sf(23f));
+            // 3-way language pill: TR | EN | 中文
+            _rcLangPill = new RectangleF(w - pad - Sf(96f), Sf(15f), Sf(96f), Sf(23f));
+            float wTr = Sf(29f), wEn = Sf(29f), wZh = _rcLangPill.Width - wTr - wEn;
+            _rcLangTr = new RectangleF(_rcLangPill.X, _rcLangPill.Y, wTr, _rcLangPill.Height);
+            _rcLangEn = new RectangleF(_rcLangTr.Right, _rcLangPill.Y, wEn, _rcLangPill.Height);
+            _rcLangZh = new RectangleF(_rcLangEn.Right, _rcLangPill.Y, wZh, _rcLangPill.Height);
 
-            // Toolbar row (y = 140)
-            float tbY = Sf(138f);
-            float tbH = Sf(28f);
+            _rcAdmin = new RectangleF(_rcLangPill.X - Sf(84f), Sf(15f), Sf(76f), Sf(23f));
+
+            float tbY = Sf(138f), tbH = Sf(28f);
             _rcRescan = new RectangleF(pad, tbY, Sf(102f), tbH);
             _rcSelSafe = new RectangleF(_rcRescan.Right + Sf(8f), tbY, Sf(114f), tbH);
             _rcSelNone = new RectangleF(_rcSelSafe.Right + Sf(8f), tbY, Sf(104f), tbH);
             _rcToggleEmpty = new RectangleF(w - pad - Sf(146f), tbY, Sf(146f), tbH);
 
-            // List panel
-            int listTop = S(176f);
-            int footerH = S(66f);
+            int listTop = S(176f), footerH = S(66f);
             int listH = Math.Max(S(120f), h - listTop - footerH - S(8f));
             _listPanel.SetBounds(S(20f), listTop, Math.Max(S(300f), w - S(40f)), listH);
 
-            // Footer buttons
-            float btnH = Sf(36f);
-            float btnY = h - Sf(51f);
-            float cleanW = Sf(208f);
-            float copyW = Sf(126f);
+            float btnH = Sf(36f), btnY = h - Sf(51f);
+            float cleanW = Sf(208f), copyW = Sf(126f);
             _rcClean = new RectangleF(w - pad - cleanW, btnY, cleanW, btnH);
             _rcCopyReport = new RectangleF(_rcClean.X - Sf(10f) - copyW, btnY, copyW, btnH);
         }
 
         private void UpdateTitleText()
         {
-            Text = _prefs.IsTurkish
-                ? "SafeSweep — Güvenli Windows Disk Temizleyici"
-                : "SafeSweep — Safe Windows Disk Cleaner";
+            Text = T("SafeSweep — Safe Windows Disk Cleaner", "SafeSweep — Güvenli Windows Disk Temizleyici", "SafeSweep — 安全透明的 Windows 磁盘清理工具");
         }
 
         private void RefreshDiskSpace()
@@ -1009,21 +915,13 @@ namespace SafeSweep
                 _diskTotalBytes = 476L * 1024 * 1024 * 1024;
                 return;
             }
-
             try
             {
                 string root = Path.GetPathRoot(Environment.SystemDirectory) ?? "C:\\";
                 DriveInfo di = new DriveInfo(root);
-                if (di.IsReady)
-                {
-                    _diskName = root.TrimEnd('\\');
-                    _diskFreeBytes = di.AvailableFreeSpace;
-                    _diskTotalBytes = di.TotalSize;
-                }
+                if (di.IsReady) { _diskName = root.TrimEnd('\\'); _diskFreeBytes = di.AvailableFreeSpace; _diskTotalBytes = di.TotalSize; }
             }
-            catch
-            {
-            }
+            catch { }
         }
 
         private void LoadDemoData()
@@ -1031,9 +929,10 @@ namespace SafeSweep
             _allCategories = new List<CleanupCategory>();
 
             _allCategories.Add(MakeDemoCat(
-                "user_temp", "User Temporary Files", "Kullanıcı Geçici Dosyaları (Temp)",
+                "user_temp", "User Temporary Files", "Kullanıcı Geçici Dosyaları (Temp)", "用户临时文件 (Temp)",
                 "App scratch & installer leftovers. Files modified in the last 15 min are skipped.",
                 "Uygulama ve kurulum artıkları. Son 15 dk içinde kullanılan dosyalar korunur.",
+                "应用和安装残留临时文件，自动跳过最近 15 分钟内修改的活跃文件。",
                 @"C:\Users\Alex\AppData\Local\Temp", SafetyTier.Safe,
                 712L * 1024 * 1024, 1428, true, false,
                 new ScannedFileEntry[]
@@ -1046,102 +945,87 @@ namespace SafeSweep
                 }));
 
             _allCategories.Add(MakeDemoCat(
-                "chrome_cache", "Google Chrome Cache", "Google Chrome Önbelleği",
+                "chrome_cache", "Google Chrome Cache", "Google Chrome Önbelleği", "Google Chrome 网页缓存",
                 "Web & GPU cache only. Cookies, logins, history, bookmarks & extensions are untouched.",
                 "Yalnızca web ve GPU önbelleği. Çerez, şifre, geçmiş ve eklentiler korunur.",
+                "仅清理网页与 GPU 缓存，Cookie、登录状态、历史记录、书签与扩展完全保留。",
                 @"C:\Users\Alex\AppData\Local\Google\Chrome\User Data", SafetyTier.Safe,
-                584L * 1024 * 1024, 3214, true, false,
-                new ScannedFileEntry[]
-                {
-                    DemoFile(@"C:\Users\Alex\AppData\Local\Google\Chrome\User Data\Default\Cache\Cache_Data\f_003a19", "f_003a19", 44L * 1024 * 1024, -2),
-                    DemoFile(@"C:\Users\Alex\AppData\Local\Google\Chrome\User Data\Default\Code Cache\js\b7c92a01", "b7c92a01", 28L * 1024 * 1024, -5)
-                }));
+                584L * 1024 * 1024, 3214, true, false, null));
 
             _allCategories.Add(MakeDemoCat(
-                "dev_caches", "Developer Package Caches", "Geliştirici Paket Önbellekleri",
+                "dev_caches", "Developer Package Caches", "Geliştirici Paket Önbellekleri", "开发者包管理器缓存",
                 "npm, pip, Yarn & NuGet download caches. Packages re-download cleanly if needed.",
                 "npm, pip, Yarn ve NuGet indirme önbellekleri. Gerektiğinde tekrar indirilir.",
+                "npm、pip、Yarn 与 NuGet 下载缓存，需要时会自动重新下载。",
                 @"npm-cache · pip\Cache · NuGet", SafetyTier.Safe,
                 346L * 1024 * 1024, 1892, true, false, null));
 
             _allCategories.Add(MakeDemoCat(
-                "wer_dumps", "Crash Dumps & Error Reports", "Hata Raporları ve Çökme Dökümleri",
+                "wer_dumps", "Crash Dumps & Error Reports", "Hata Raporları ve Çökme Dökümleri", "崩溃转储与错误报告",
                 "Old Windows Error Reporting logs and application crash dumps (.dmp).",
                 "Eski Windows hata raporları ve uygulama çökme döküm dosyaları (.dmp).",
+                "旧版 Windows 错误报告日志与应用崩溃转储文件 (.dmp)。",
                 @"C:\Users\Alex\AppData\Local\CrashDumps  +  WER", SafetyTier.Safe,
                 164L * 1024 * 1024, 27, true, false, null));
 
             _allCategories.Add(MakeDemoCat(
-                "recycle_bin", "Windows Recycle Bin", "Geri Dönüşüm Kutusu",
+                "recycle_bin", "Windows Recycle Bin", "Geri Dönüşüm Kutusu", "Windows 回收站",
                 "Permanently removes previously deleted items across all drives. Check before emptying.",
                 "Tüm sürücülerdeki silinmiş öğeleri kalıcı olarak boşaltır. Önce kontrol edin.",
+                "永久清空所有磁盘回收站中已删除的文件，清空前请先确认。",
                 "$Recycle.Bin (All Drives)", SafetyTier.Caution,
                 420L * 1024 * 1024, 64, false, true, null));
 
             _allCategories.Add(MakeDemoCat(
-                "gpu_shader_cache", "DirectX & GPU Shader Cache", "DirectX ve GPU Shader Önbelleği",
+                "gpu_shader_cache", "DirectX & GPU Shader Cache", "DirectX ve GPU Shader Önbelleği", "DirectX 与显卡着色器缓存",
                 "Compiled graphics shaders (DX/AMD/NVIDIA). Games may stutter briefly while rebuilding.",
                 "Derlenmiş grafik shader'ları. Oyunlar ilk açılışta kısa süre yeniden derler.",
+                "已编译的显卡着色器缓存，清理后游戏首次启动时可能会短暂重新编译。",
                 @"C:\Users\Alex\AppData\Local\D3DSCache  +  GPU Cache", SafetyTier.Caution,
                 312L * 1024 * 1024, 148, false, false, null));
 
-            _statusText = _prefs.IsTurkish
-                ? "Tarama tamamlandı. Dosyaları görmek için herhangi bir satırda 'İncele'ye tıklayın."
-                : "Scan complete. Click 'Inspect' on any row to preview files before cleaning.";
+            SetIdleStatusMessage();
             _statusIsSuccess = false;
             RefreshVisibleList();
+        }
+
+        private void SetIdleStatusMessage()
+        {
+            _statusText = T(
+                "Scan complete. Click 'Inspect' on any row to preview files before cleaning.",
+                "Tarama tamamlandı. Temizlemeden önce 'İncele' ile klasör içeriğini görebilirsiniz.",
+                "扫描完成。点击任意行右侧的“查看”可在清理前预览具体文件。");
         }
 
         private static ScannedFileEntry DemoFile(string fullPath, string name, long bytes, int hoursAgo)
         {
             ScannedFileEntry e = new ScannedFileEntry();
-            e.FullPath = fullPath;
-            e.FileName = name;
-            e.SizeBytes = bytes;
-            e.LastWriteTime = DateTime.Now.AddHours(hoursAgo);
+            e.FullPath = fullPath; e.FileName = name; e.SizeBytes = bytes; e.LastWriteTime = DateTime.Now.AddHours(hoursAgo);
             return e;
         }
 
         private static CleanupCategory MakeDemoCat(
-            string id, string nameEn, string nameTr, string descEn, string descTr,
-            string displayPath, SafetyTier tier, long bytes, long files, bool isChecked, bool isBin,
-            ScannedFileEntry[] topFiles)
+            string id, string nameEn, string nameTr, string nameZh, string descEn, string descTr, string descZh,
+            string displayPath, SafetyTier tier, long bytes, long files, bool isChecked, bool isBin, ScannedFileEntry[] topFiles)
         {
             CleanupCategory cat = new CleanupCategory();
-            cat.Id = id;
-            cat.NameEn = nameEn;
-            cat.NameTr = nameTr;
-            cat.DescEn = descEn;
-            cat.DescTr = descTr;
-            cat.DisplayPath = displayPath;
-            cat.Tier = tier;
-            cat.TotalBytes = bytes;
-            cat.FileCount = files;
-            cat.Checked = isChecked;
-            cat.HasScanned = true;
-            cat.IsRecycleBin = isBin;
+            cat.Id = id; cat.NameEn = nameEn; cat.NameTr = nameTr; cat.NameZh = nameZh;
+            cat.DescEn = descEn; cat.DescTr = descTr; cat.DescZh = descZh;
+            cat.DisplayPath = displayPath; cat.Tier = tier; cat.TotalBytes = bytes;
+            cat.FileCount = files; cat.Checked = isChecked; cat.HasScanned = true; cat.IsRecycleBin = isBin;
 
             TargetFolderStats st = new TargetFolderStats();
-            st.Path = displayPath;
-            st.Bytes = bytes;
-            st.FileCount = (int)files;
-            st.Exists = true;
+            st.Path = displayPath; st.Bytes = bytes; st.FileCount = (int)files; st.Exists = true;
             cat.FolderBreakdowns.Add(st);
-
-            if (topFiles != null)
-                cat.TopFiles.AddRange(topFiles);
-
+            if (topFiles != null) cat.TopFiles.AddRange(topFiles);
             return cat;
         }
 
         private void StartScanAsync()
         {
             if (_isBusy) return;
-            _isBusy = true;
-            _cancelFlag = false;
-            _progressRatio = 0f;
-            _statusIsSuccess = false;
-            _statusText = _prefs.IsTurkish ? "Sistem klasörleri taranıyor (salt okunur)..." : "Scanning system folders (read-only)...";
+            _isBusy = true; _cancelFlag = false; _progressRatio = 0f; _statusIsSuccess = false;
+            _statusText = T("Scanning system folders (read-only)...", "Sistem klasörleri taranıyor (salt okunur)...", "正在只读扫描系统文件夹...");
             _listPanel.SetBusy(true);
             Invalidate();
 
@@ -1152,39 +1036,31 @@ namespace SafeSweep
 
                 for (int i = 0; i < total; i++)
                 {
-                    if (_cancelFlag || IsDisposed)
-                        return;
-
+                    if (_cancelFlag || IsDisposed) return;
                     CleanupCategory cat = catalog[i];
                     int idx = i;
                     SafeUiInvoke(delegate
                     {
                         _progressRatio = (float)idx / Math.Max(1, total);
-                        _statusText = (_prefs.IsTurkish ? "Taranıyor: " : "Scanning: ") + cat.GetName(_prefs.IsTurkish);
+                        _statusText = T("Scanning: ", "Taranıyor: ", "正在扫描: ") + cat.GetName(Lang);
                         Invalidate();
                     });
-
                     CleanupEngine.ScanCategory(cat, delegate { return _cancelFlag || IsDisposed; });
                 }
 
-                // Sort: SAFE first (largest to smallest), then CAUTION (largest to smallest)
                 catalog.Sort(delegate(CleanupCategory a, CleanupCategory b)
                 {
                     int tierCmp = a.Tier.CompareTo(b.Tier);
-                    if (tierCmp != 0) return tierCmp;
-                    return b.TotalBytes.CompareTo(a.TotalBytes);
+                    return tierCmp != 0 ? tierCmp : b.TotalBytes.CompareTo(a.TotalBytes);
                 });
 
                 SafeUiInvoke(delegate
                 {
                     _allCategories = catalog;
-                    _isBusy = false;
-                    _progressRatio = 1f;
+                    _isBusy = false; _progressRatio = 1f;
                     _listPanel.SetBusy(false);
                     RefreshDiskSpace();
-                    _statusText = _prefs.IsTurkish
-                        ? "Tarama tamamlandı. Temizlemeden önce 'İncele' ile klasör içeriğini görebilirsiniz."
-                        : "Scan complete. Click 'Inspect' on any category to inspect files before cleaning.";
+                    SetIdleStatusMessage();
                     RefreshVisibleList();
                 });
             });
@@ -1193,10 +1069,7 @@ namespace SafeSweep
         private void StartCleanAsync(List<CleanupCategory> selected)
         {
             if (_isBusy || _launch.DemoMode) return;
-            _isBusy = true;
-            _cancelFlag = false;
-            _progressRatio = 0f;
-            _statusIsSuccess = false;
+            _isBusy = true; _cancelFlag = false; _progressRatio = 0f; _statusIsSuccess = false;
             _listPanel.SetBusy(true);
             Invalidate();
 
@@ -1204,13 +1077,13 @@ namespace SafeSweep
             {
                 CleanSummary summary = CleanupEngine.CleanSelected(
                     _allCategories,
-                    delegate(string curName, int done, int total)
+                    delegate(CleanupCategory curCat, int done, int total)
                     {
                         SafeUiInvoke(delegate
                         {
                             _progressRatio = (float)done / Math.Max(1, total);
-                            if (!string.IsNullOrEmpty(curName))
-                                _statusText = (_prefs.IsTurkish ? "Temizleniyor: " : "Cleaning: ") + curName;
+                            if (curCat != null)
+                                _statusText = T("Cleaning: ", "Temizleniyor: ", "正在清理: ") + curCat.GetName(Lang);
                             Invalidate();
                         });
                     },
@@ -1218,27 +1091,18 @@ namespace SafeSweep
 
                 SafeUiInvoke(delegate
                 {
-                    _isBusy = false;
-                    _progressRatio = 1f;
+                    _isBusy = false; _progressRatio = 1f;
                     _listPanel.SetBusy(false);
                     RefreshDiskSpace();
 
-                    CultureInfo c = CleanupEngine.GetCulture(_prefs.IsTurkish);
-                    string freedStr = CleanupEngine.FormatBytes(summary.TotalFreedBytes, _prefs.IsTurkish);
-                    if (_prefs.IsTurkish)
-                    {
-                        _statusText = string.Format(
-                            c,
-                            "Temizlendi: {0} kazanıldı · {1:N0} dosya silindi · {2:N0} aktif/kilitli dosya korundu.",
-                            freedStr, summary.TotalDeletedFiles, summary.TotalSkippedFiles);
-                    }
-                    else
-                    {
-                        _statusText = string.Format(
-                            c,
-                            "Done: Freed {0} · {1:N0} files removed · {2:N0} in-use/protected files safely skipped.",
-                            freedStr, summary.TotalDeletedFiles, summary.TotalSkippedFiles);
-                    }
+                    CultureInfo c = LangHelper.GetCulture(Lang);
+                    string freedStr = CleanupEngine.FormatBytes(summary.TotalFreedBytes, Lang);
+                    _statusText = string.Format(
+                        c,
+                        T("Done: Freed {0} · {1:N0} files removed · {2:N0} in-use/protected files skipped.",
+                          "Temizlendi: {0} kazanıldı · {1:N0} dosya silindi · {2:N0} aktif/kilitli dosya korundu.",
+                          "清理完成：已释放 {0} · 删除 {1:N0} 个文件 · 安全跳过 {2:N0} 个占用/受保护文件。"),
+                        freedStr, summary.TotalDeletedFiles, summary.TotalSkippedFiles);
                     _statusIsSuccess = true;
                     RefreshVisibleList();
                 });
@@ -1247,24 +1111,14 @@ namespace SafeSweep
 
         private void SafeUiInvoke(MethodInvoker action)
         {
-            try
-            {
-                if (!IsDisposed && IsHandleCreated)
-                    BeginInvoke(action);
-            }
-            catch
-            {
-            }
+            try { if (!IsDisposed && IsHandleCreated) BeginInvoke(action); } catch { }
         }
 
         private void RefreshVisibleList()
         {
             List<CleanupCategory> visible = new List<CleanupCategory>();
             foreach (CleanupCategory cat in _allCategories)
-            {
-                if (_showEmpty || cat.TotalBytes > 0)
-                    visible.Add(cat);
-            }
+                if (_showEmpty || cat.TotalBytes > 0) visible.Add(cat);
             _listPanel.SetItems(visible);
             Invalidate();
         }
@@ -1272,10 +1126,7 @@ namespace SafeSweep
         private int CountEmptyCategories()
         {
             int n = 0;
-            foreach (CleanupCategory cat in _allCategories)
-            {
-                if (cat.TotalBytes == 0) n++;
-            }
+            foreach (CleanupCategory cat in _allCategories) if (cat.TotalBytes == 0) n++;
             return n;
         }
 
@@ -1283,17 +1134,14 @@ namespace SafeSweep
         {
             List<CleanupCategory> res = new List<CleanupCategory>();
             foreach (CleanupCategory cat in _allCategories)
-            {
-                if (cat.Checked && cat.TotalBytes > 0)
-                    res.Add(cat);
-            }
+                if (cat.Checked && cat.TotalBytes > 0) res.Add(cat);
             return res;
         }
 
         private void OnInspectCategory(CleanupCategory cat)
         {
             if (cat == null) return;
-            using (FolderInspectorDialog dlg = new FolderInspectorDialog(cat, _prefs.IsTurkish))
+            using (FolderInspectorDialog dlg = new FolderInspectorDialog(cat, Lang))
                 dlg.ShowDialog(this);
         }
 
@@ -1303,7 +1151,7 @@ namespace SafeSweep
             List<CleanupCategory> selected = GetSelectedCleanable();
             if (selected.Count == 0) return;
 
-            using (ConfirmCleanDialog dlg = new ConfirmCleanDialog(selected, _prefs.IsTurkish))
+            using (ConfirmCleanDialog dlg = new ConfirmCleanDialog(selected, Lang))
             {
                 if (dlg.ShowDialog(this) == DialogResult.OK)
                 {
@@ -1313,20 +1161,23 @@ namespace SafeSweep
             }
         }
 
-        private void ToggleLanguage()
+        private void SetLanguage(string lang)
         {
-            _prefs.Language = _prefs.IsTurkish ? "en" : "tr";
-            if (!_launch.DemoMode)
-                _prefs.Save();
+            if (string.Equals(_prefs.Language, lang, StringComparison.OrdinalIgnoreCase)) return;
+            _prefs.Language = lang;
+            if (!_launch.DemoMode) _prefs.Save();
+            RebuildFonts();
             UpdateTitleText();
-            _listPanel.SetLanguage(_prefs.IsTurkish);
-            if (!_isBusy && !_statusIsSuccess)
-            {
-                _statusText = _prefs.IsTurkish
-                    ? "Tarama tamamlandı. Temizlemeden önce 'İncele' ile klasör içeriğini görebilirsiniz."
-                    : "Scan complete. Click 'Inspect' on any category to inspect files before cleaning.";
-            }
+            _listPanel.SetLanguage(Lang);
+            if (!_isBusy && !_statusIsSuccess) SetIdleStatusMessage();
             Invalidate();
+        }
+
+        private void CycleLanguage()
+        {
+            if (Lang == "tr") SetLanguage("en");
+            else if (Lang == "zh") SetLanguage("tr");
+            else SetLanguage("zh");
         }
 
         private void ElevateAsAdmin()
@@ -1341,10 +1192,7 @@ namespace SafeSweep
                 Process.Start(psi);
                 Close();
             }
-            catch
-            {
-                // User cancelled UAC prompt; stay running cleanly as standard user.
-            }
+            catch { }
         }
 
         private void SelectSafeOnly()
@@ -1359,8 +1207,7 @@ namespace SafeSweep
         private void SelectNone()
         {
             if (_isBusy) return;
-            foreach (CleanupCategory cat in _allCategories)
-                cat.Checked = false;
+            foreach (CleanupCategory cat in _allCategories) cat.Checked = false;
             _listPanel.Invalidate();
             Invalidate();
         }
@@ -1369,50 +1216,39 @@ namespace SafeSweep
         {
             try
             {
-                bool tr = _prefs.IsTurkish;
-                CultureInfo c = CleanupEngine.GetCulture(tr);
+                CultureInfo c = LangHelper.GetCulture(Lang);
                 StringBuilder sb = new StringBuilder();
-                sb.AppendLine(tr ? "=== SafeSweep Disk Analiz Raporu ===" : "=== SafeSweep Disk Breakdown Report ===");
+                sb.AppendLine(T("=== SafeSweep Disk Breakdown Report ===", "=== SafeSweep Disk Analiz Raporu ===", "=== SafeSweep 磁盘空间分析报告 ==="));
 
-                long grandBytes = 0;
-                long grandFiles = 0;
+                long grandBytes = 0, grandFiles = 0;
                 foreach (CleanupCategory cat in _allCategories)
                 {
                     if (cat.TotalBytes <= 0) continue;
-                    grandBytes += cat.TotalBytes;
-                    grandFiles += cat.FileCount;
-                    string tag = cat.Tier == SafetyTier.Safe ? (tr ? "GÜVENLİ" : "SAFE") : (tr ? "DİKKAT" : "CAUTION");
-                    sb.AppendFormat(
-                        c,
-                        "[{0}] {1}: {2} ({3:N0} {4}) — {5}",
-                        tag,
-                        cat.GetName(tr),
-                        CleanupEngine.FormatBytes(cat.TotalBytes, tr),
-                        cat.FileCount,
-                        tr ? "dosya" : "files",
-                        cat.DisplayPath);
+                    grandBytes += cat.TotalBytes; grandFiles += cat.FileCount;
+                    string tag = cat.Tier == SafetyTier.Safe ? T("SAFE", "GÜVENLİ", "安全") : T("CAUTION", "DİKKAT", "谨慎");
+                    sb.AppendFormat(c, "[{0}] {1}: {2} ({3:N0} {4}) — {5}",
+                        tag, cat.GetName(Lang), CleanupEngine.FormatBytes(cat.TotalBytes, Lang),
+                        cat.FileCount, T("files", "dosya", "个文件"), cat.DisplayPath);
                     sb.AppendLine();
                 }
 
-                sb.AppendFormat(
-                    c,
-                    tr ? "Toplam Bulunan: {0} ({1:N0} dosya)" : "Total Reclaimable: {0} ({1:N0} files)",
-                    CleanupEngine.FormatBytes(grandBytes, tr),
-                    grandFiles);
+                sb.AppendFormat(c,
+                    T("Total Reclaimable: {0} ({1:N0} files)", "Toplam Bulunan: {0} ({1:N0} dosya)", "总计可释放: {0} (共 {1:N0} 个文件)"),
+                    CleanupEngine.FormatBytes(grandBytes, Lang), grandFiles);
                 sb.AppendLine();
 
                 Clipboard.SetText(sb.ToString());
                 _copiedUntil = DateTime.UtcNow.AddMilliseconds(1600);
                 Invalidate();
             }
-            catch
-            {
-            }
+            catch { }
         }
 
         private int HitTest(Point pt)
         {
-            if (_rcLang.Contains(pt)) return HitLang;
+            if (_rcLangTr.Contains(pt)) return HitLangTr;
+            if (_rcLangEn.Contains(pt)) return HitLangEn;
+            if (_rcLangZh.Contains(pt)) return HitLangZh;
             if (!_isAdmin && _rcAdmin.Contains(pt)) return HitAdmin;
             if (!_isBusy && _rcRescan.Contains(pt)) return HitRescan;
             if (!_isBusy && _rcSelSafe.Contains(pt)) return HitSelSafe;
@@ -1427,24 +1263,13 @@ namespace SafeSweep
         {
             base.OnMouseMove(e);
             int hit = HitTest(e.Location);
-            if (hit != _hoverHit)
-            {
-                _hoverHit = hit;
-                Cursor = hit != HitNone ? Cursors.Hand : Cursors.Default;
-                Invalidate();
-            }
+            if (hit != _hoverHit) { _hoverHit = hit; Cursor = hit != HitNone ? Cursors.Hand : Cursors.Default; Invalidate(); }
         }
 
         protected override void OnMouseLeave(EventArgs e)
         {
             base.OnMouseLeave(e);
-            if (_hoverHit != HitNone || _pressHit != HitNone)
-            {
-                _hoverHit = HitNone;
-                _pressHit = HitNone;
-                Cursor = Cursors.Default;
-                Invalidate();
-            }
+            if (_hoverHit != HitNone || _pressHit != HitNone) { _hoverHit = HitNone; _pressHit = HitNone; Cursor = Cursors.Default; Invalidate(); }
         }
 
         protected override void OnMouseDown(MouseEventArgs e)
@@ -1453,11 +1278,7 @@ namespace SafeSweep
             if (e.Button == MouseButtons.Left)
             {
                 int hit = HitTest(e.Location);
-                if (hit != _pressHit)
-                {
-                    _pressHit = hit;
-                    Invalidate();
-                }
+                if (hit != _pressHit) { _pressHit = hit; Invalidate(); }
             }
         }
 
@@ -1465,14 +1286,14 @@ namespace SafeSweep
         {
             base.OnMouseUp(e);
             if (e.Button != MouseButtons.Left) return;
-
-            int released = HitTest(e.Location);
-            int pressed = _pressHit;
+            int released = HitTest(e.Location), pressed = _pressHit;
             _pressHit = HitNone;
 
             if (pressed != HitNone && pressed == released)
             {
-                if (pressed == HitLang) ToggleLanguage();
+                if (pressed == HitLangTr) SetLanguage("tr");
+                else if (pressed == HitLangEn) SetLanguage("en");
+                else if (pressed == HitLangZh) SetLanguage("zh");
                 else if (pressed == HitAdmin) ElevateAsAdmin();
                 else if (pressed == HitRescan) { if (!_launch.DemoMode) StartScanAsync(); }
                 else if (pressed == HitSelSafe) SelectSafeOnly();
@@ -1487,16 +1308,8 @@ namespace SafeSweep
         protected override void OnKeyDown(KeyEventArgs e)
         {
             base.OnKeyDown(e);
-            if (e.KeyCode == Keys.F5 && !_isBusy && !_launch.DemoMode)
-            {
-                StartScanAsync();
-                e.Handled = true;
-            }
-            else if (!e.Control && !e.Alt && e.KeyCode == Keys.L)
-            {
-                ToggleLanguage();
-                e.Handled = true;
-            }
+            if (e.KeyCode == Keys.F5 && !_isBusy && !_launch.DemoMode) { StartScanAsync(); e.Handled = true; }
+            else if (!e.Control && !e.Alt && e.KeyCode == Keys.L) { CycleLanguage(); e.Handled = true; }
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -1515,10 +1328,7 @@ namespace SafeSweep
 
         private void DrawHeader(Graphics g)
         {
-            bool tr = _prefs.IsTurkish;
             float pad = Sf(20f);
-
-            // Shield glyph + Brand
             DrawShieldIcon(g, new RectangleF(pad, Sf(16f), Sf(18f), Sf(20f)), ColSafe);
 
             using (SolidBrush wb = new SolidBrush(ColTextPrimary))
@@ -1527,163 +1337,125 @@ namespace SafeSweep
             {
                 sf.LineAlignment = StringAlignment.Center;
                 sf.Alignment = StringAlignment.Near;
-                g.DrawString("SAFESWEEP", _fontBrand, wb, new RectangleF(pad + Sf(24f), Sf(13f), Sf(110f), Sf(26f)), sf);
+                g.DrawString("SAFESWEEP", _fontBrand, wb, new RectangleF(pad + Sf(24f), Sf(13f), Sf(106f), Sf(26f)), sf);
                 g.DrawString(
-                    tr ? "Güvenli Windows Disk Temizleyici" : "Safe Windows Disk Cleaner",
-                    _fontTagline,
-                    mb,
-                    new RectangleF(pad + Sf(126f), Sf(14f), Sf(240f), Sf(25f)),
-                    sf);
+                    T("Safe Windows Disk Cleaner", "Güvenli Windows Disk Temizleyici", "安全透明的 Windows 磁盘清理工具"),
+                    _fontTagline, mb, new RectangleF(pad + Sf(124f), Sf(14f), Sf(225f), Sf(25f)), sf);
             }
 
-            // Disk C: capacity pill
             if (_diskTotalBytes > 0)
             {
-                string diskTxt = tr
-                    ? string.Format("{0}  {1} boş / {2}", _diskName, CleanupEngine.FormatBytes(_diskFreeBytes, true), CleanupEngine.FormatBytes(_diskTotalBytes, true))
-                    : string.Format("{0}  {1} free / {2}", _diskName, CleanupEngine.FormatBytes(_diskFreeBytes, false), CleanupEngine.FormatBytes(_diskTotalBytes, false));
+                string diskTxt = string.Format(
+                    T("{0}  {1} free / {2}", "{0}  {1} boş / {2}", "{0} 可用 {1} / {2}"),
+                    _diskName,
+                    CleanupEngine.FormatBytes(_diskFreeBytes, Lang),
+                    CleanupEngine.FormatBytes(_diskTotalBytes, Lang));
 
-                RectangleF diskRc = new RectangleF(_rcAdmin.X - Sf(198f), Sf(15f), Sf(190f), Sf(23f));
-                if (diskRc.X > Sf(350f))
+                RectangleF diskRc = new RectangleF(_rcAdmin.X - Sf(190f), Sf(15f), Sf(182f), Sf(23f));
+                if (diskRc.X > Sf(340f))
                 {
                     DrawRoundedBox(g, diskRc, Sf(6f), ColCard, ColCardBorder);
                     using (SolidBrush db = new SolidBrush(ColTextSecondary))
                     using (StringFormat sf = new StringFormat())
                     {
-                        sf.Alignment = StringAlignment.Center;
-                        sf.LineAlignment = StringAlignment.Center;
-                        sf.FormatFlags = StringFormatFlags.NoWrap;
+                        sf.Alignment = StringAlignment.Center; sf.LineAlignment = StringAlignment.Center; sf.FormatFlags = StringFormatFlags.NoWrap;
                         g.DrawString(diskTxt, _fontSmallPill, db, diskRc, sf);
                     }
                 }
             }
 
-            // Admin badge / elevate button
             bool admHover = !_isAdmin && _hoverHit == HitAdmin;
-            Color admBg = _isAdmin ? Color.FromArgb(18, 46, 36) : (admHover ? ColBtnHover : ColCard);
-            Color admBd = _isAdmin ? Color.FromArgb(38, 128, 96) : (admHover ? ColSafe : ColCardBorder);
-            Color admFg = _isAdmin ? ColSafe : (admHover ? ColTextPrimary : ColTextSecondary);
-            DrawRoundedBox(g, _rcAdmin, Sf(6f), admBg, admBd);
-            using (SolidBrush ab = new SolidBrush(admFg))
+            DrawRoundedBox(g, _rcAdmin, Sf(6f),
+                _isAdmin ? Color.FromArgb(18, 46, 36) : (admHover ? ColBtnHover : ColCard),
+                _isAdmin ? Color.FromArgb(38, 128, 96) : (admHover ? ColSafe : ColCardBorder));
+            using (SolidBrush ab = new SolidBrush(_isAdmin ? ColSafe : (admHover ? ColTextPrimary : ColTextSecondary)))
             using (StringFormat sf = new StringFormat())
             {
-                sf.Alignment = StringAlignment.Center;
-                sf.LineAlignment = StringAlignment.Center;
-                string admText = _isAdmin
-                    ? (tr ? "Yönetici" : "Admin")
-                    : (tr ? "Yönetici ↗" : "Admin ↗");
+                sf.Alignment = StringAlignment.Center; sf.LineAlignment = StringAlignment.Center;
+                string admText = _isAdmin ? T("Admin", "Yönetici", "管理员") : T("Admin ↗", "Yönetici ↗", "管理员 ↗");
                 g.DrawString(admText, _fontSmallPill, ab, _rcAdmin, sf);
             }
 
-            // TR | EN toggle pill
-            bool langHover = _hoverHit == HitLang;
-            DrawRoundedBox(g, _rcLang, Sf(6f), langHover ? ColBtnHover : ColCard, langHover ? Color.FromArgb(72, 85, 104) : ColCardBorder);
-            float halfW = _rcLang.Width * 0.5f;
-            RectangleF trRc = new RectangleF(_rcLang.X + Sf(2f), _rcLang.Y, halfW - Sf(2f), _rcLang.Height);
-            RectangleF enRc = new RectangleF(_rcLang.X + halfW, _rcLang.Y, halfW - Sf(2f), _rcLang.Height);
-            using (SolidBrush tb = new SolidBrush(tr ? ColSafe : ColTextMuted))
-            using (SolidBrush eb = new SolidBrush(!tr ? ColSafe : ColTextMuted))
+            // 3-Way Language Pill: TR | EN | 中文
+            bool anyLangHov = _hoverHit == HitLangTr || _hoverHit == HitLangEn || _hoverHit == HitLangZh;
+            DrawRoundedBox(g, _rcLangPill, Sf(6f), anyLangHov ? ColBtnHover : ColCard, anyLangHov ? Color.FromArgb(72, 85, 104) : ColCardBorder);
+            using (SolidBrush bTr = new SolidBrush(Lang == "tr" ? ColSafe : (_hoverHit == HitLangTr ? ColTextPrimary : ColTextMuted)))
+            using (SolidBrush bEn = new SolidBrush(Lang == "en" ? ColSafe : (_hoverHit == HitLangEn ? ColTextPrimary : ColTextMuted)))
+            using (SolidBrush bZh = new SolidBrush(Lang == "zh" ? ColSafe : (_hoverHit == HitLangZh ? ColTextPrimary : ColTextMuted)))
             using (Pen sep = new Pen(ColDivider, 1f))
             using (StringFormat sf = new StringFormat())
             {
-                sf.Alignment = StringAlignment.Center;
-                sf.LineAlignment = StringAlignment.Center;
-                g.DrawString("TR", _fontSmallPill, tb, trRc, sf);
-                g.DrawString("EN", _fontSmallPill, eb, enRc, sf);
-                g.DrawLine(sep, _rcLang.X + halfW, _rcLang.Y + Sf(4f), _rcLang.X + halfW, _rcLang.Bottom - Sf(4f));
+                sf.Alignment = StringAlignment.Center; sf.LineAlignment = StringAlignment.Center;
+                g.DrawString("TR", _fontSmallPill, bTr, _rcLangTr, sf);
+                g.DrawString("EN", _fontSmallPill, bEn, _rcLangEn, sf);
+                g.DrawString("中文", _fontLangZh, bZh, _rcLangZh, sf);
+                g.DrawLine(sep, _rcLangTr.Right, _rcLangPill.Y + Sf(4f), _rcLangTr.Right, _rcLangPill.Bottom - Sf(4f));
+                g.DrawLine(sep, _rcLangEn.Right, _rcLangPill.Y + Sf(4f), _rcLangEn.Right, _rcLangPill.Bottom - Sf(4f));
             }
         }
 
         private void DrawSummaryCards(Graphics g)
         {
-            bool tr = _prefs.IsTurkish;
-            CultureInfo c = CleanupEngine.GetCulture(tr);
-
-            long totalBytes = 0, totalFiles = 0;
-            long selBytes = 0, selFiles = 0;
+            CultureInfo c = LangHelper.GetCulture(Lang);
+            long totalBytes = 0, totalFiles = 0, selBytes = 0, selFiles = 0;
             int nonEmptyCount = 0, selCount = 0, selCautionCount = 0;
 
             foreach (CleanupCategory cat in _allCategories)
             {
-                totalBytes += cat.TotalBytes;
-                totalFiles += cat.FileCount;
+                totalBytes += cat.TotalBytes; totalFiles += cat.FileCount;
                 if (cat.TotalBytes > 0) nonEmptyCount++;
                 if (cat.Checked && cat.TotalBytes > 0)
                 {
-                    selBytes += cat.TotalBytes;
-                    selFiles += cat.FileCount;
-                    selCount++;
+                    selBytes += cat.TotalBytes; selFiles += cat.FileCount; selCount++;
                     if (cat.Tier == SafetyTier.Caution) selCautionCount++;
                 }
             }
 
-            float pad = Sf(20f);
-            float gap = Sf(10f);
+            float pad = Sf(20f), gap = Sf(10f);
             float usableW = ClientSize.Width - pad * 2f;
-            float y = Sf(50f);
-            float h = Sf(76f);
-
+            float y = Sf(50f), h = Sf(76f);
             float w1 = (usableW - gap * 2f) * 0.35f;
             float w2 = (usableW - gap * 2f) * 0.35f;
             float w3 = usableW - gap * 2f - w1 - w2;
 
-            // Card 1: Total Found
-            RectangleF c1 = new RectangleF(pad, y, w1, h);
-            DrawSummaryCard(
-                g, c1,
-                tr ? "TOPLAM BULUNAN" : "TOTAL RECLAIMABLE",
-                CleanupEngine.FormatBytes(totalBytes, tr),
+            DrawSummaryCard(g, new RectangleF(pad, y, w1, h),
+                T("TOTAL RECLAIMABLE", "TOPLAM BULUNAN", "总计可释放空间"),
+                CleanupEngine.FormatBytes(totalBytes, Lang),
                 ColCyan,
-                tr
-                    ? string.Format(c, "{0:N0} dosya · {1} konum", totalFiles, nonEmptyCount)
-                    : string.Format(c, "{0:N0} files · {1} locations", totalFiles, nonEmptyCount));
+                string.Format(c, T("{0:N0} files · {1} locations", "{0:N0} dosya · {1} konum", "{0:N0} 个文件 · {1} 个位置"), totalFiles, nonEmptyCount));
 
-            // Card 2: Selected to Clean
-            RectangleF c2 = new RectangleF(c1.Right + gap, y, w2, h);
             string selSub;
             if (selCount == 0)
-                selSub = tr ? "Temizlemek için öğe seçin" : "Select categories to clean";
+                selSub = T("Select categories to clean", "Temizlemek için öğe seçin", "请勾选需要清理的项目");
             else if (selCautionCount > 0)
-                selSub = tr
-                    ? string.Format(c, "{0} öğe ({1} dikkat) · {2:N0} dosya", selCount, selCautionCount, selFiles)
-                    : string.Format(c, "{0} items ({1} caution) · {2:N0} files", selCount, selCautionCount, selFiles);
+                selSub = string.Format(c, T("{0} items ({1} caution) · {2:N0} files", "{0} öğe ({1} dikkat) · {2:N0} dosya", "已选 {0} 项 (含 {1} 项谨慎) · {2:N0} 个文件"), selCount, selCautionCount, selFiles);
             else
-                selSub = tr
-                    ? string.Format(c, "{0} güvenli öğe · {1:N0} dosya", selCount, selFiles)
-                    : string.Format(c, "{0} safe items · {1:N0} files", selCount, selFiles);
+                selSub = string.Format(c, T("{0} safe items · {1:N0} files", "{0} güvenli öğe · {1:N0} dosya", "已选 {0} 个安全项 · {1:N0} 个文件"), selCount, selFiles);
 
-            DrawSummaryCard(
-                g, c2,
-                tr ? "SEÇİLEN ALAN" : "SELECTED TO CLEAN",
-                CleanupEngine.FormatBytes(selBytes, tr),
+            DrawSummaryCard(g, new RectangleF(pad + w1 + gap, y, w2, h),
+                T("SELECTED TO CLEAN", "SEÇİLEN ALAN", "已选待清理"),
+                CleanupEngine.FormatBytes(selBytes, Lang),
                 selCautionCount > 0 ? ColAmber : ColSafe,
                 selSub);
 
-            // Card 3: Safety Protection
-            RectangleF c3 = new RectangleF(c2.Right + gap, y, w3, h);
-            DrawSummaryCard(
-                g, c3,
-                tr ? "GÜVENLİK KORUMASI" : "SAFETY GUARD",
-                tr ? "Aktif" : "Active",
+            DrawSummaryCard(g, new RectangleF(pad + w1 + w2 + gap * 2f, y, w3, h),
+                T("SAFETY GUARD", "GÜVENLİK KORUMASI", "安全防护状态"),
+                T("Active", "Aktif", "已开启"),
                 ColSafe,
-                tr ? "Symlink, şifre ve aktif dosyalar korunur" : "Symlinks, logins & active files safe");
+                T("Symlinks, logins & active files safe", "Symlink, şifre ve aktif dosyalar korunur", "保护符号链接、密码与活跃文件"));
         }
 
         private void DrawSummaryCard(Graphics g, RectangleF r, string label, string value, Color valueColor, string sub)
         {
             DrawRoundedBox(g, r, Sf(10f), ColCard, ColCardBorder);
             float px = Sf(14f);
-
             using (SolidBrush lb = new SolidBrush(ColTextMuted))
             using (SolidBrush vb = new SolidBrush(valueColor))
             using (SolidBrush sb = new SolidBrush(ColTextSecondary))
             using (StringFormat sf = new StringFormat())
             {
-                sf.Alignment = StringAlignment.Near;
-                sf.LineAlignment = StringAlignment.Center;
-                sf.FormatFlags = StringFormatFlags.NoWrap;
-                sf.Trimming = StringTrimming.EllipsisCharacter;
-
+                sf.Alignment = StringAlignment.Near; sf.LineAlignment = StringAlignment.Center;
+                sf.FormatFlags = StringFormatFlags.NoWrap; sf.Trimming = StringTrimming.EllipsisCharacter;
                 g.DrawString(label, _fontCardLabel, lb, new RectangleF(r.X + px, r.Y + Sf(8f), r.Width - px * 2f, Sf(15f)), sf);
                 g.DrawString(value, _fontCardBig, vb, new RectangleF(r.X + px, r.Y + Sf(23f), r.Width - px * 2f, Sf(28f)), sf);
                 g.DrawString(sub, _fontCardSub, sb, new RectangleF(r.X + px, r.Y + Sf(52f), r.Width - px * 2f, Sf(17f)), sf);
@@ -1692,15 +1464,14 @@ namespace SafeSweep
 
         private void DrawToolbar(Graphics g)
         {
-            bool tr = _prefs.IsTurkish;
-            DrawSmallButton(g, _rcRescan, HitRescan, tr ? "Yeniden Tara" : "Rescan", !_isBusy, false);
-            DrawSmallButton(g, _rcSelSafe, HitSelSafe, tr ? "Güvenlileri Seç" : "Select Safe", !_isBusy, false);
-            DrawSmallButton(g, _rcSelNone, HitSelNone, tr ? "Seçimi Temizle" : "Select None", !_isBusy, false);
+            DrawSmallButton(g, _rcRescan, HitRescan, T("Rescan", "Yeniden Tara", "重新扫描"), !_isBusy, false);
+            DrawSmallButton(g, _rcSelSafe, HitSelSafe, T("Select Safe", "Güvenlileri Seç", "仅选安全项"), !_isBusy, false);
+            DrawSmallButton(g, _rcSelNone, HitSelNone, T("Select None", "Seçimi Temizle", "取消全选"), !_isBusy, false);
 
             int emptyCnt = CountEmptyCategories();
             string emptyTxt = _showEmpty
-                ? (tr ? "Boşları Gizle" : "Hide Empty")
-                : (tr ? string.Format("Boşları Göster ({0})", emptyCnt) : string.Format("Show Empty ({0})", emptyCnt));
+                ? T("Hide Empty", "Boşları Gizle", "隐藏空项目")
+                : string.Format(T("Show Empty ({0})", "Boşları Göster ({0})", "显示空项目 ({0})"), emptyCnt);
             DrawSmallButton(g, _rcToggleEmpty, HitToggleEmpty, emptyTxt, true, _showEmpty);
         }
 
@@ -1708,7 +1479,6 @@ namespace SafeSweep
         {
             bool hov = enabled && _hoverHit == hitId;
             bool prs = enabled && _pressHit == hitId;
-
             Color bg = !enabled ? ColCard : (prs ? ColBtnPress : (hov ? ColBtnHover : (active ? Color.FromArgb(24, 42, 38) : ColBtnNormal)));
             Color bd = !enabled ? ColDivider : (active ? Color.FromArgb(42, 130, 98) : (hov ? Color.FromArgb(72, 86, 106) : ColBtnBorder));
             Color fg = !enabled ? ColTextMuted : (active ? ColSafe : ColTextBody);
@@ -1717,46 +1487,36 @@ namespace SafeSweep
             using (SolidBrush fb = new SolidBrush(fg))
             using (StringFormat sf = new StringFormat())
             {
-                sf.Alignment = StringAlignment.Center;
-                sf.LineAlignment = StringAlignment.Center;
-                sf.FormatFlags = StringFormatFlags.NoWrap;
+                sf.Alignment = StringAlignment.Center; sf.LineAlignment = StringAlignment.Center; sf.FormatFlags = StringFormatFlags.NoWrap;
                 g.DrawString(text, _fontToolbar, fb, r, sf);
             }
         }
 
         private void DrawFooter(Graphics g)
         {
-            bool tr = _prefs.IsTurkish;
             int h = ClientSize.Height;
             float footerTop = h - Sf(64f);
-
-            using (Pen p = new Pen(ColDivider, 1f))
-                g.DrawLine(p, 0, footerTop, ClientSize.Width, footerTop);
+            using (Pen p = new Pen(ColDivider, 1f)) g.DrawLine(p, 0, footerTop, ClientSize.Width, footerTop);
 
             float statusMaxW = Math.Max(Sf(120f), _rcCopyReport.X - Sf(32f));
             if (_isBusy)
             {
-                // Live progress bar + status label
                 RectangleF lblRc = new RectangleF(Sf(20f), footerTop + Sf(12f), statusMaxW, Sf(18f));
                 using (SolidBrush sb = new SolidBrush(ColTextBody))
                 using (StringFormat sf = new StringFormat())
                 {
-                    sf.Alignment = StringAlignment.Near;
-                    sf.LineAlignment = StringAlignment.Center;
-                    sf.FormatFlags = StringFormatFlags.NoWrap;
-                    sf.Trimming = StringTrimming.EllipsisCharacter;
+                    sf.Alignment = StringAlignment.Near; sf.LineAlignment = StringAlignment.Center;
+                    sf.FormatFlags = StringFormatFlags.NoWrap; sf.Trimming = StringTrimming.EllipsisCharacter;
                     g.DrawString(_statusText, _fontStatus, sb, lblRc, sf);
                 }
 
                 RectangleF track = new RectangleF(Sf(20f), footerTop + Sf(36f), Math.Min(Sf(320f), statusMaxW), Sf(6f));
                 using (GraphicsPath tp = CreateRoundedRect(track, Sf(3f)))
-                using (SolidBrush tb = new SolidBrush(Color.FromArgb(30, 38, 48)))
-                    g.FillPath(tb, tp);
+                using (SolidBrush tb = new SolidBrush(Color.FromArgb(30, 38, 48))) g.FillPath(tb, tp);
 
                 float fillW = Math.Max(Sf(14f), track.Width * Math.Min(1f, Math.Max(0.06f, _progressRatio)));
                 using (GraphicsPath fp = CreateRoundedRect(new RectangleF(track.X, track.Y, fillW, track.Height), Sf(3f)))
-                using (SolidBrush fb = new SolidBrush(ColSafe))
-                    g.FillPath(fb, fp);
+                using (SolidBrush fb = new SolidBrush(ColSafe)) g.FillPath(fb, fp);
             }
             else
             {
@@ -1764,21 +1524,15 @@ namespace SafeSweep
                 using (SolidBrush sb = new SolidBrush(_statusIsSuccess ? ColSafe : ColTextSecondary))
                 using (StringFormat sf = new StringFormat())
                 {
-                    sf.Alignment = StringAlignment.Near;
-                    sf.LineAlignment = StringAlignment.Center;
-                    sf.Trimming = StringTrimming.EllipsisCharacter;
+                    sf.Alignment = StringAlignment.Near; sf.LineAlignment = StringAlignment.Center; sf.Trimming = StringTrimming.EllipsisCharacter;
                     g.DrawString(_statusText, _fontStatus, sb, lblRc, sf);
                 }
             }
 
-            // Copy Report button
             bool copied = _copiedUntil != DateTime.MinValue && DateTime.UtcNow < _copiedUntil;
-            string copyTxt = copied
-                ? (tr ? "Kopyalandı ✓" : "Copied ✓")
-                : (tr ? "Raporu Kopyala" : "Copy Report");
+            string copyTxt = copied ? T("Copied ✓", "Kopyalandı ✓", "已复制 ✓") : T("Copy Report", "Raporu Kopyala", "复制报告");
             DrawSmallButton(g, _rcCopyReport, HitCopyReport, copyTxt, true, copied);
 
-            // Primary Clean Selected button
             List<CleanupCategory> sel = GetSelectedCleanable();
             long selBytes = 0;
             foreach (CleanupCategory cat in sel) selBytes += cat.TotalBytes;
@@ -1788,27 +1542,23 @@ namespace SafeSweep
             bool cleanPrs = canClean && _pressHit == HitClean;
 
             Color cBg = !canClean ? ColPrimaryDisabled : (cleanPrs ? Color.FromArgb(14, 98, 70) : (cleanHov ? ColPrimaryHover : ColPrimaryBg));
-            Color cBd = !canClean ? ColDivider : ColSafe;
-            Color cFg = !canClean ? ColTextMuted : Color.White;
+            DrawRoundedBox(g, _rcClean, Sf(8f), cBg, !canClean ? ColDivider : ColSafe);
 
-            DrawRoundedBox(g, _rcClean, Sf(8f), cBg, cBd);
             string cleanTxt;
             if (sel.Count > 0)
             {
-                string sz = CleanupEngine.FormatBytes(selBytes, tr);
-                cleanTxt = tr ? string.Format("Temizle ({0})", sz) : string.Format("Clean Selected ({0})", sz);
+                string sz = CleanupEngine.FormatBytes(selBytes, Lang);
+                cleanTxt = string.Format(T("Clean Selected ({0})", "Temizle ({0})", "立即清理 ({0})"), sz);
             }
             else
             {
-                cleanTxt = tr ? "Seçilenleri Temizle" : "Clean Selected";
+                cleanTxt = T("Clean Selected", "Seçilenleri Temizle", "清理已选项");
             }
 
-            using (SolidBrush fb = new SolidBrush(cFg))
+            using (SolidBrush fb = new SolidBrush(!canClean ? ColTextMuted : Color.White))
             using (StringFormat sf = new StringFormat())
             {
-                sf.Alignment = StringAlignment.Center;
-                sf.LineAlignment = StringAlignment.Center;
-                sf.FormatFlags = StringFormatFlags.NoWrap;
+                sf.Alignment = StringAlignment.Center; sf.LineAlignment = StringAlignment.Center; sf.FormatFlags = StringFormatFlags.NoWrap;
                 g.DrawString(cleanTxt, _fontPrimaryBtn, fb, _rcClean, sf);
             }
         }
@@ -1827,23 +1577,17 @@ namespace SafeSweep
             using (SolidBrush fill = new SolidBrush(Color.FromArgb(40, color)))
             using (Pen stroke = new Pen(color, 1.5f))
             {
-                stroke.LineJoin = LineJoin.Round;
-                g.FillPolygon(fill, pts);
-                g.DrawPolygon(stroke, pts);
+                stroke.LineJoin = LineJoin.Round; g.FillPolygon(fill, pts); g.DrawPolygon(stroke, pts);
             }
-
             using (Pen chk = new Pen(color, 1.6f))
             {
-                chk.StartCap = LineCap.Round;
-                chk.EndCap = LineCap.Round;
-                chk.LineJoin = LineJoin.Round;
-                PointF[] cPts = new PointF[]
+                chk.StartCap = LineCap.Round; chk.EndCap = LineCap.Round; chk.LineJoin = LineJoin.Round;
+                g.DrawLines(chk, new PointF[]
                 {
                     new PointF(r.X + r.Width * 0.28f, r.Y + r.Height * 0.50f),
                     new PointF(r.X + r.Width * 0.46f, r.Y + r.Height * 0.67f),
                     new PointF(r.X + r.Width * 0.74f, r.Y + r.Height * 0.36f)
-                };
-                g.DrawLines(chk, cPts);
+                });
             }
         }
 
@@ -1851,11 +1595,7 @@ namespace SafeSweep
         {
             using (GraphicsPath p = CreateRoundedRect(r, radius))
             using (SolidBrush fb = new SolidBrush(fill))
-            using (Pen bp = new Pen(border, 1f))
-            {
-                g.FillPath(fb, p);
-                g.DrawPath(bp, p);
-            }
+            using (Pen bp = new Pen(border, 1f)) { g.FillPath(fb, p); g.DrawPath(bp, p); }
         }
 
         private static GraphicsPath CreateRoundedRect(RectangleF r, float radius)
@@ -1875,13 +1615,8 @@ namespace SafeSweep
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             _cancelFlag = true;
-            if (_uiTimer != null)
-            {
-                _uiTimer.Stop();
-                _uiTimer.Dispose();
-            }
-            if (_appIcon != null)
-                _appIcon.Dispose();
+            if (_uiTimer != null) { _uiTimer.Stop(); _uiTimer.Dispose(); }
+            if (_appIcon != null) _appIcon.Dispose();
             DisposeFonts();
             base.OnFormClosing(e);
         }

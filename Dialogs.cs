@@ -35,22 +35,8 @@ namespace SafeSweep
 
         public static void EnableDpiAwareness()
         {
-            try
-            {
-                if (SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2))
-                    return;
-            }
-            catch
-            {
-            }
-
-            try
-            {
-                SetProcessDPIAware();
-            }
-            catch
-            {
-            }
+            try { if (SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)) return; } catch { }
+            try { SetProcessDPIAware(); } catch { }
         }
 
         public static void ApplyDarkTitleBar(IntPtr hwnd, Color captionColor, Color textColor)
@@ -59,9 +45,7 @@ namespace SafeSweep
             {
                 int enabled = 1;
                 if (DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, ref enabled, sizeof(int)) != 0)
-                {
                     DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1, ref enabled, sizeof(int));
-                }
 
                 int capRef = captionColor.R | (captionColor.G << 8) | (captionColor.B << 16);
                 DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR, ref capRef, sizeof(int));
@@ -69,9 +53,7 @@ namespace SafeSweep
                 int txtRef = textColor.R | (textColor.G << 8) | (textColor.B << 16);
                 DwmSetWindowAttribute(hwnd, DWMWA_TEXT_COLOR, ref txtRef, sizeof(int));
             }
-            catch
-            {
-            }
+            catch { }
         }
     }
 
@@ -87,37 +69,35 @@ namespace SafeSweep
         private static readonly Color ColCaution = Color.FromArgb(251, 191, 36);
 
         private readonly CleanupCategory _cat;
-        private readonly bool _isTurkish;
+        private readonly string _lang;
         private readonly ListView _lvFolders;
         private readonly ListView _lvFiles;
 
-        public FolderInspectorDialog(CleanupCategory cat, bool isTurkish)
+        public FolderInspectorDialog(CleanupCategory cat, string lang)
         {
             _cat = cat;
-            _isTurkish = isTurkish;
-            CultureInfo c = CleanupEngine.GetCulture(isTurkish);
+            _lang = lang;
+            CultureInfo c = LangHelper.GetCulture(lang);
+            string fontName = LangHelper.UiFontFamily(lang);
 
-            Text = isTurkish
-                ? "Klasör Dökümü — " + cat.NameTr
-                : "Folder Breakdown — " + cat.NameEn;
+            Text = LangHelper.T(lang, "Folder Breakdown", "Klasör Dökümü", "文件夹详情") + " — " + cat.GetName(lang);
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
             MinimizeBox = false;
             StartPosition = FormStartPosition.CenterParent;
             BackColor = ColBg;
             ForeColor = ColText;
-            Font = new Font("Segoe UI", 9f, FontStyle.Regular);
+            Font = new Font(fontName, 9f, FontStyle.Regular);
 
             SuspendLayout();
             AutoScaleDimensions = new SizeF(96f, 96f);
             AutoScaleMode = AutoScaleMode.Dpi;
             ClientSize = new Size(650, 496);
 
-            // Header title + badge
             Label lblTitle = new Label();
             lblTitle.UseMnemonic = false;
-            lblTitle.Text = cat.GetName(isTurkish);
-            lblTitle.Font = new Font("Segoe UI", 12.5f, FontStyle.Bold);
+            lblTitle.Text = cat.GetName(lang);
+            lblTitle.Font = new Font(fontName, 12.5f, FontStyle.Bold);
             lblTitle.ForeColor = ColText;
             lblTitle.Location = new Point(20, 16);
             lblTitle.AutoSize = true;
@@ -126,12 +106,11 @@ namespace SafeSweep
             Label lblSummary = new Label();
             lblSummary.UseMnemonic = false;
             lblSummary.Text = string.Format(
-                c,
-                "{0}  ·  {1:N0} {2}",
-                CleanupEngine.FormatBytes(cat.TotalBytes, isTurkish),
+                c, "{0}  ·  {1:N0} {2}",
+                CleanupEngine.FormatBytes(cat.TotalBytes, lang),
                 cat.FileCount,
-                isTurkish ? "dosya" : "files");
-            lblSummary.Font = new Font("Segoe UI", 10.5f, FontStyle.Bold);
+                LangHelper.T(lang, "files", "dosya", "个文件"));
+            lblSummary.Font = new Font(fontName, 10.5f, FontStyle.Bold);
             lblSummary.ForeColor = cat.Tier == SafetyTier.Safe ? ColSafe : ColCaution;
             lblSummary.Location = new Point(400, 18);
             lblSummary.Size = new Size(230, 22);
@@ -140,64 +119,68 @@ namespace SafeSweep
 
             Label lblDesc = new Label();
             lblDesc.UseMnemonic = false;
-            lblDesc.Text = cat.GetDescription(isTurkish);
+            lblDesc.Text = cat.GetDescription(lang);
             lblDesc.ForeColor = ColMuted;
             lblDesc.Location = new Point(20, 44);
             lblDesc.Size = new Size(610, 22);
             Controls.Add(lblDesc);
 
-            // Section 1: Scanned Folders
             Label lblFolders = new Label();
-            lblFolders.Text = isTurkish ? "Taranan Klasörler:" : "Scanned Folders:";
-            lblFolders.Font = new Font("Segoe UI", 8.8f, FontStyle.Bold);
+            lblFolders.UseMnemonic = false;
+            lblFolders.Text = LangHelper.T(lang, "Scanned Folders:", "Taranan Klasörler:", "扫描目录:");
+            lblFolders.Font = new Font(fontName, 8.8f, FontStyle.Bold);
             lblFolders.ForeColor = ColBody;
             lblFolders.Location = new Point(20, 74);
             lblFolders.AutoSize = true;
             Controls.Add(lblFolders);
 
-            _lvFolders = CreateDarkListView(new Point(20, 96), new Size(610, 128));
-            _lvFolders.Columns.Add(isTurkish ? "Klasör Yolu" : "Folder Path", 420);
-            _lvFolders.Columns.Add(isTurkish ? "Dosya" : "Files", 78, HorizontalAlignment.Right);
-            _lvFolders.Columns.Add(isTurkish ? "Boyut" : "Size", 110, HorizontalAlignment.Right);
+            _lvFolders = CreateThemedDarkListView(new Point(20, 96), new Size(610, 128), ColSurface, ColBody, fontName);
+            _lvFolders.Columns.Add(LangHelper.T(lang, "Folder Path", "Klasör Yolu", "文件夹路径"), 420);
+            _lvFolders.Columns.Add(LangHelper.T(lang, "Files", "Dosya", "文件数"), 78, HorizontalAlignment.Right);
+            _lvFolders.Columns.Add(LangHelper.T(lang, "Size", "Boyut", "大小"), 110, HorizontalAlignment.Right);
 
             foreach (TargetFolderStats st in cat.FolderBreakdowns)
             {
                 ListViewItem lvi = new ListViewItem(st.Path);
                 lvi.SubItems.Add(st.FileCount.ToString("N0", c));
-                lvi.SubItems.Add(CleanupEngine.FormatBytes(st.Bytes, isTurkish));
+                lvi.SubItems.Add(CleanupEngine.FormatBytes(st.Bytes, lang));
                 lvi.Tag = st.Path;
                 _lvFolders.Items.Add(lvi);
             }
             _lvFolders.DoubleClick += delegate { OpenSelectedFolder(); };
             Controls.Add(_lvFolders);
 
-            // Section 2: Largest Files
             Label lblFiles = new Label();
-            lblFiles.Text = isTurkish
-                ? "En Büyük Dosyalar (İlk 25 — Salt Okunur Önizleme):"
-                : "Largest Files (Top 25 — Read-Only Preview):";
-            lblFiles.Font = new Font("Segoe UI", 8.8f, FontStyle.Bold);
+            lblFiles.UseMnemonic = false;
+            lblFiles.Text = LangHelper.T(
+                lang,
+                "Largest Files (Top 25 — Read-Only Preview):",
+                "En Büyük Dosyalar (İlk 25 — Salt Okunur Önizleme):",
+                "体积最大的文件 (前 25 项 — 只读预览):");
+            lblFiles.Font = new Font(fontName, 8.8f, FontStyle.Bold);
             lblFiles.ForeColor = ColBody;
             lblFiles.Location = new Point(20, 236);
             lblFiles.AutoSize = true;
             Controls.Add(lblFiles);
 
-            _lvFiles = CreateDarkListView(new Point(20, 258), new Size(610, 178));
-            _lvFiles.Columns.Add(isTurkish ? "Dosya Adı" : "File Name", 365);
-            _lvFiles.Columns.Add(isTurkish ? "Son Değişiklik" : "Last Modified", 132);
-            _lvFiles.Columns.Add(isTurkish ? "Boyut" : "Size", 111, HorizontalAlignment.Right);
+            _lvFiles = CreateThemedDarkListView(new Point(20, 258), new Size(610, 178), ColSurface, ColBody, fontName);
+            _lvFiles.Columns.Add(LangHelper.T(lang, "File Name", "Dosya Adı", "文件名"), 365);
+            _lvFiles.Columns.Add(LangHelper.T(lang, "Last Modified", "Son Değişiklik", "修改时间"), 132);
+            _lvFiles.Columns.Add(LangHelper.T(lang, "Size", "Boyut", "大小"), 111, HorizontalAlignment.Right);
 
             if (cat.IsRecycleBin)
             {
-                ListViewItem lvi = new ListViewItem(isTurkish
-                    ? "Geri Dönüşüm Kutusu içeriğini görmek için 'Klasörü Aç' butonuna tıklayın."
-                    : "Click 'Open Folder' to view items inside the Windows Recycle Bin.");
+                ListViewItem lvi = new ListViewItem(LangHelper.T(
+                    lang,
+                    "Click 'Open Folder' to view items inside the Windows Recycle Bin.",
+                    "Geri Dönüşüm Kutusu içeriğini görmek için 'Klasörü Aç' butonuna tıklayın.",
+                    "点击下方“在资源管理器中打开”可查看回收站内的具体文件。"));
                 lvi.ForeColor = ColMuted;
                 _lvFiles.Items.Add(lvi);
             }
             else if (cat.TopFiles.Count == 0)
             {
-                ListViewItem lvi = new ListViewItem(isTurkish ? "Temizlenecek dosya bulunamadı." : "No eligible files found.");
+                ListViewItem lvi = new ListViewItem(LangHelper.T(lang, "No eligible files found.", "Temizlenecek dosya bulunamadı.", "未发现可清理文件。"));
                 lvi.ForeColor = ColMuted;
                 _lvFiles.Items.Add(lvi);
             }
@@ -206,11 +189,11 @@ namespace SafeSweep
                 foreach (ScannedFileEntry f in cat.TopFiles)
                 {
                     ListViewItem lvi = new ListViewItem(f.FileName);
-                    string dt = isTurkish
+                    string dt = (lang == "tr")
                         ? f.LastWriteTime.ToString("dd.MM.yyyy HH:mm", c)
                         : f.LastWriteTime.ToString("yyyy-MM-dd HH:mm", c);
                     lvi.SubItems.Add(dt);
-                    lvi.SubItems.Add(CleanupEngine.FormatBytes(f.SizeBytes, isTurkish));
+                    lvi.SubItems.Add(CleanupEngine.FormatBytes(f.SizeBytes, lang));
                     lvi.Tag = f.FullPath;
                     _lvFiles.Items.Add(lvi);
                 }
@@ -218,21 +201,22 @@ namespace SafeSweep
             _lvFiles.DoubleClick += delegate { OpenSelectedFileLocation(); };
             Controls.Add(_lvFiles);
 
-            // Bottom buttons
             Button btnOpen = new Button();
-            btnOpen.Text = isTurkish ? "Klasörü Gezginde Aç" : "Open Folder in Explorer";
+            btnOpen.UseMnemonic = false;
+            btnOpen.Text = LangHelper.T(lang, "Open Folder in Explorer", "Klasörü Gezginde Aç", "在资源管理器中打开");
             btnOpen.FlatStyle = FlatStyle.Flat;
             btnOpen.BackColor = ColSurface;
             btnOpen.ForeColor = ColSafe;
             btnOpen.FlatAppearance.BorderColor = ColBorder;
             btnOpen.Location = new Point(20, 448);
-            btnOpen.Size = new Size(184, 34);
+            btnOpen.Size = new Size(192, 34);
             btnOpen.Cursor = Cursors.Hand;
             btnOpen.Click += delegate { OpenSelectedFolder(); };
             Controls.Add(btnOpen);
 
             Button btnClose = new Button();
-            btnClose.Text = isTurkish ? "Kapat" : "Close";
+            btnClose.UseMnemonic = false;
+            btnClose.Text = LangHelper.T(lang, "Close", "Kapat", "关闭");
             btnClose.FlatStyle = FlatStyle.Flat;
             btnClose.BackColor = ColSurface;
             btnClose.ForeColor = ColText;
@@ -254,7 +238,7 @@ namespace SafeSweep
             NativeWindowStyle.ApplyDarkTitleBar(Handle, ColBg, ColText);
         }
 
-        internal static ListView CreateThemedDarkListView(Point loc, Size size, Color surfaceColor, Color bodyColor)
+        internal static ListView CreateThemedDarkListView(Point loc, Size size, Color surfaceColor, Color bodyColor, string fontName)
         {
             ListView lv = new ListView();
             lv.Location = loc;
@@ -266,7 +250,7 @@ namespace SafeSweep
             lv.BorderStyle = BorderStyle.FixedSingle;
             lv.BackColor = surfaceColor;
             lv.ForeColor = bodyColor;
-            lv.Font = new Font("Segoe UI", 8.6f);
+            lv.Font = new Font(fontName, 8.6f);
             lv.OwnerDraw = true;
 
             Color hdrBg = Color.FromArgb(28, 35, 46);
@@ -279,7 +263,7 @@ namespace SafeSweep
                 using (SolidBrush bg = new SolidBrush(hdrBg))
                 using (Pen bd = new Pen(hdrBorder, 1f))
                 using (SolidBrush fg = new SolidBrush(hdrText))
-                using (Font f = new Font("Segoe UI", 8.2f, FontStyle.Bold))
+                using (Font f = new Font(fontName, 8.2f, FontStyle.Bold))
                 using (StringFormat sf = new StringFormat())
                 {
                     e.Graphics.FillRectangle(bg, e.Bounds);
@@ -294,7 +278,6 @@ namespace SafeSweep
 
             lv.DrawItem += delegate(object sender, DrawListViewItemEventArgs e)
             {
-                // In View.Details mode, DrawSubItem paints every cell cleanly.
             };
 
             lv.DrawSubItem += delegate(object sender, DrawListViewSubItemEventArgs e)
@@ -321,33 +304,18 @@ namespace SafeSweep
             return lv;
         }
 
-        private ListView CreateDarkListView(Point loc, Size size)
-        {
-            return CreateThemedDarkListView(loc, size, ColSurface, ColBody);
-        }
-
         private void OpenSelectedFolder()
         {
             try
             {
-                if (_cat.IsRecycleBin)
-                {
-                    Process.Start("explorer.exe", "shell:RecycleBinFolder");
-                    return;
-                }
-
+                if (_cat.IsRecycleBin) { Process.Start("explorer.exe", "shell:RecycleBinFolder"); return; }
                 string pathToOpen = null;
-                if (_lvFolders.SelectedItems.Count > 0)
-                    pathToOpen = _lvFolders.SelectedItems[0].Tag as string;
-                else if (_cat.FolderBreakdowns.Count > 0)
-                    pathToOpen = _cat.FolderBreakdowns[0].Path;
-
+                if (_lvFolders.SelectedItems.Count > 0) pathToOpen = _lvFolders.SelectedItems[0].Tag as string;
+                else if (_cat.FolderBreakdowns.Count > 0) pathToOpen = _cat.FolderBreakdowns[0].Path;
                 if (!string.IsNullOrEmpty(pathToOpen) && Directory.Exists(pathToOpen))
                     Process.Start("explorer.exe", "\"" + pathToOpen + "\"");
             }
-            catch
-            {
-            }
+            catch { }
         }
 
         private void OpenSelectedFileLocation()
@@ -361,9 +329,7 @@ namespace SafeSweep
                         Process.Start("explorer.exe", "/select,\"" + filePath + "\"");
                 }
             }
-            catch
-            {
-            }
+            catch { }
         }
     }
 
@@ -378,13 +344,12 @@ namespace SafeSweep
         private static readonly Color ColSafe = Color.FromArgb(52, 211, 153);
         private static readonly Color ColCaution = Color.FromArgb(251, 191, 36);
 
-        public ConfirmCleanDialog(List<CleanupCategory> selected, bool isTurkish)
+        public ConfirmCleanDialog(List<CleanupCategory> selected, string lang)
         {
-            CultureInfo c = CleanupEngine.GetCulture(isTurkish);
-            long totalBytes = 0;
-            long totalFiles = 0;
-            bool hasCaution = false;
-            bool hasRunning = false;
+            CultureInfo c = LangHelper.GetCulture(lang);
+            string fontName = LangHelper.UiFontFamily(lang);
+            long totalBytes = 0, totalFiles = 0;
+            bool hasCaution = false, hasRunning = false;
 
             foreach (CleanupCategory cat in selected)
             {
@@ -394,14 +359,14 @@ namespace SafeSweep
                 if (cat.IsAppRunning) hasRunning = true;
             }
 
-            Text = isTurkish ? "Temizliği Onayla" : "Confirm Cleanup";
+            Text = LangHelper.T(lang, "Confirm Cleanup", "Temizliği Onayla", "确认清理");
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
             MinimizeBox = false;
             StartPosition = FormStartPosition.CenterParent;
             BackColor = ColBg;
             ForeColor = ColText;
-            Font = new Font("Segoe UI", 9f, FontStyle.Regular);
+            Font = new Font(fontName, 9f, FontStyle.Regular);
 
             SuspendLayout();
             AutoScaleDimensions = new SizeF(96f, 96f);
@@ -409,86 +374,84 @@ namespace SafeSweep
             ClientSize = new Size(470, 390);
 
             Label lblTitle = new Label();
-            lblTitle.Text = isTurkish
-                ? string.Format(c, "{0} ({1:N0} dosya) kalıcı olarak temizlenecek", CleanupEngine.FormatBytes(totalBytes, true), totalFiles)
-                : string.Format(c, "Permanently clean {0} ({1:N0} files)", CleanupEngine.FormatBytes(totalBytes, false), totalFiles);
-            lblTitle.Font = new Font("Segoe UI", 10.8f, FontStyle.Bold);
+            lblTitle.UseMnemonic = false;
+            lblTitle.Text = string.Format(
+                c,
+                LangHelper.T(lang, "Permanently clean {0} ({1:N0} files)", "{0} ({1:N0} dosya) kalıcı olarak temizlenecek", "即将永久清理 {0} (共 {1:N0} 个文件)"),
+                CleanupEngine.FormatBytes(totalBytes, lang),
+                totalFiles);
+            lblTitle.Font = new Font(fontName, 10.8f, FontStyle.Bold);
             lblTitle.ForeColor = hasCaution ? ColCaution : ColSafe;
             lblTitle.Location = new Point(20, 16);
             lblTitle.Size = new Size(430, 24);
             Controls.Add(lblTitle);
 
             Label lblSub = new Label();
-            lblSub.Text = isTurkish
-                ? "Seçtiğiniz kalemler aşağıdadır. Aktif/kilitli dosyalar ve sembolik bağlantılar otomatik korunur."
-                : "Selected items are listed below. Locked/in-use files and symlinks are automatically protected.";
+            lblSub.UseMnemonic = false;
+            lblSub.Text = LangHelper.T(
+                lang,
+                "Selected items are listed below. Locked/in-use files and symlinks are automatically protected.",
+                "Seçtiğiniz kalemler aşağıdadır. Aktif/kilitli dosyalar ve sembolik bağlantılar otomatik korunur.",
+                "已选清理项目如下。正在使用的锁定文件与符号链接将被自动保护并跳过。");
             lblSub.ForeColor = ColMuted;
             lblSub.Location = new Point(20, 44);
             lblSub.Size = new Size(430, 34);
             Controls.Add(lblSub);
 
-            ListView lv = FolderInspectorDialog.CreateThemedDarkListView(new Point(20, 84), new Size(430, 186), ColSurface, ColBody);
-            lv.Columns.Add(isTurkish ? "Kategori" : "Category", 268);
-            lv.Columns.Add(isTurkish ? "Dosya" : "Files", 66, HorizontalAlignment.Right);
-            lv.Columns.Add(isTurkish ? "Boyut" : "Size", 94, HorizontalAlignment.Right);
+            ListView lv = FolderInspectorDialog.CreateThemedDarkListView(new Point(20, 84), new Size(430, 186), ColSurface, ColBody, fontName);
+            lv.Columns.Add(LangHelper.T(lang, "Category", "Kategori", "清理项目"), 268);
+            lv.Columns.Add(LangHelper.T(lang, "Files", "Dosya", "文件数"), 66, HorizontalAlignment.Right);
+            lv.Columns.Add(LangHelper.T(lang, "Size", "Boyut", "大小"), 94, HorizontalAlignment.Right);
 
             foreach (CleanupCategory cat in selected)
             {
                 string prefix = cat.Tier == SafetyTier.Caution ? "[!] " : "";
-                ListViewItem lvi = new ListViewItem(prefix + cat.GetName(isTurkish));
+                ListViewItem lvi = new ListViewItem(prefix + cat.GetName(lang));
                 lvi.SubItems.Add(cat.FileCount.ToString("N0", c));
-                lvi.SubItems.Add(CleanupEngine.FormatBytes(cat.TotalBytes, isTurkish));
-                if (cat.Tier == SafetyTier.Caution)
-                    lvi.ForeColor = ColCaution;
+                lvi.SubItems.Add(CleanupEngine.FormatBytes(cat.TotalBytes, lang));
+                if (cat.Tier == SafetyTier.Caution) lvi.ForeColor = ColCaution;
                 lv.Items.Add(lvi);
             }
             Controls.Add(lv);
 
             string warnText = "";
             if (hasCaution)
-            {
-                warnText += isTurkish
-                    ? "• Dikkat [!] işaretli öğeler seçili (örn. Geri Dönüşüm Kutusu / Shader önbelleği).\r\n"
-                    : "• Caution [!] items are selected (e.g. Recycle Bin / Shader cache).\r\n";
-            }
+                warnText += LangHelper.T(lang, "• Caution [!] items are selected (e.g. Recycle Bin / Shader cache).\r\n", "• Dikkat [!] işaretli öğeler seçili (örn. Geri Dönüşüm Kutusu / Shader önbelleği).\r\n", "• 已勾选谨慎 [!] 项目（如回收站 / 显卡着色器缓存）。\r\n");
             if (hasRunning)
-            {
-                warnText += isTurkish
-                    ? "• Açık olan tarayıcı/uygulamaların kilitli önbellek dosyaları güvenle atlanacaktır."
-                    : "• Some open browser/app cache files are locked and will be safely skipped.";
-            }
+                warnText += LangHelper.T(lang, "• Some open browser/app cache files are locked and will be safely skipped.", "• Açık olan tarayıcı/uygulamaların kilitli önbellek dosyaları güvenle atlanacaktır.", "• 部分正在运行的浏览器/应用缓存文件已锁定，将自动安全跳过。");
             if (string.IsNullOrEmpty(warnText))
-            {
-                warnText = isTurkish
-                    ? "Yalnızca güvenli (SAFE) önbellek ve geçici dosyalar seçildi. Kişisel dosyalarınız ve şifreleriniz etkilenmez."
-                    : "Only SAFE caches & temporary files are selected. Personal files, logins & cookies are untouched.";
-            }
+                warnText = LangHelper.T(
+                    lang,
+                    "Only SAFE caches & temporary files are selected. Personal files, logins & cookies are untouched.",
+                    "Yalnızca güvenli (SAFE) önbellek ve geçici dosyalar seçildi. Kişisel dosyalarınız ve şifreleriniz etkilenmez.",
+                    "仅勾选了安全缓存与临时文件，您的个人文档、密码与登录状态完全不受影响。");
 
             Label lblWarn = new Label();
             lblWarn.UseMnemonic = false;
             lblWarn.Text = warnText.Trim();
             lblWarn.ForeColor = (hasCaution || hasRunning) ? ColCaution : ColMuted;
-            lblWarn.Font = new Font("Segoe UI", 8.3f);
+            lblWarn.Font = new Font(fontName, 8.3f);
             lblWarn.Location = new Point(20, 280);
             lblWarn.Size = new Size(430, 48);
             Controls.Add(lblWarn);
 
             Button btnConfirm = new Button();
             btnConfirm.UseMnemonic = false;
-            btnConfirm.Text = isTurkish ? "Onayla ve Temizle" : "Confirm & Clean";
+            btnConfirm.Text = LangHelper.T(lang, "Confirm & Clean", "Onayla ve Temizle", "确认并清理");
             btnConfirm.FlatStyle = FlatStyle.Flat;
             btnConfirm.BackColor = Color.FromArgb(18, 66, 48);
             btnConfirm.ForeColor = Color.FromArgb(110, 231, 183);
             btnConfirm.FlatAppearance.BorderColor = ColSafe;
             btnConfirm.Location = new Point(216, 338);
             btnConfirm.Size = new Size(134, 34);
-            btnConfirm.Font = new Font("Segoe UI", 9f, FontStyle.Bold);
+            btnConfirm.Font = new Font(fontName, 9f, FontStyle.Bold);
             btnConfirm.Cursor = Cursors.Hand;
             btnConfirm.DialogResult = DialogResult.OK;
             Controls.Add(btnConfirm);
 
             Button btnCancel = new Button();
-            btnCancel.Text = isTurkish ? "İptal" : "Cancel";
+            btnCancel.UseMnemonic = false;
+            btnCancel.Text = LangHelper.T(lang, "Cancel", "İptal", "取消");
             btnCancel.FlatStyle = FlatStyle.Flat;
             btnCancel.BackColor = ColSurface;
             btnCancel.ForeColor = ColText;
@@ -501,7 +464,6 @@ namespace SafeSweep
 
             AcceptButton = btnConfirm;
             CancelButton = btnCancel;
-
             ResumeLayout(false);
             PerformLayout();
         }
