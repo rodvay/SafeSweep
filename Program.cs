@@ -14,8 +14,8 @@ using System.Windows.Forms;
 [assembly: AssemblyTitle("SafeSweep — Safe Windows Disk Cleaner")]
 [assembly: AssemblyDescription("Transparent, safety-first Windows disk cleaner showing folder-by-folder breakdowns before cleaning (EN/TR/zh-CN).")]
 [assembly: AssemblyProduct("SafeSweep")]
-[assembly: AssemblyVersion("1.1.1.0")]
-[assembly: AssemblyFileVersion("1.1.1.0")]
+[assembly: AssemblyVersion("1.1.2.0")]
+[assembly: AssemblyFileVersion("1.1.2.0")]
 
 namespace SafeSweep
 {

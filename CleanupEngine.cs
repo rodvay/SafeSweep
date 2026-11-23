@@ -583,8 +583,13 @@ namespace SafeSweep
             cAppMedia.DisplayPath = Path.Combine(localApp, @"Steam\htmlcache") + "  +  Spotify";
             cAppMedia.Tier = SafetyTier.Safe;
             cAppMedia.RunningProcessNames = new string[] { "steam", "Spotify" };
+            string pf86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+            string pf64 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
             AddTargetIfExistsAndSafe(cAppMedia, Path.Combine(localApp, @"Steam\htmlcache"), true, 0);
-            AddTargetIfExistsAndSafe(cAppMedia, @"C:\Program Files (x86)\Steam\config\htmlcache", true, 0);
+            if (!string.IsNullOrEmpty(pf86))
+                AddTargetIfExistsAndSafe(cAppMedia, Path.Combine(pf86, @"Steam\config\htmlcache"), true, 0);
+            if (!string.IsNullOrEmpty(pf64))
+                AddTargetIfExistsAndSafe(cAppMedia, Path.Combine(pf64, @"Steam\config\htmlcache"), true, 0);
             AddTargetIfExistsAndSafe(cAppMedia, Path.Combine(localApp, @"Spotify\Storage"), true, 0);
             AddTargetIfExistsAndSafe(cAppMedia, Path.Combine(localApp, @"Spotify\Browser\Cache"), true, 0);
             if (cAppMedia.Targets.Count > 0) list.Add(cAppMedia);
